@@ -1,6 +1,7 @@
 import OpenAI, { toFile } from 'openai';
 import fs from 'fs';
 import path from 'path';
+import sharp from 'sharp';
 
 const DARK_PROMPT = `Transform this photo into a cinematic lifestyle/editorial campaign aesthetic while preserving the authentic realism of the original image.
 
@@ -87,7 +88,12 @@ export async function generateOscarImage(photoUrl: string, style: 'dark' | 'ligh
     n: 1,
   } as Parameters<typeof openai.images.edit>[0]);
 
-  const imageBase64 = result.data[0].b64_json!;
+  const rawBuffer = Buffer.from(result.data[0].b64_json!, 'base64');
+  const resizedBuffer = await sharp(rawBuffer)
+    .resize(1080, 1350, { fit: 'cover', position: 'centre' })
+    .png()
+    .toBuffer();
+  const imageBase64 = resizedBuffer.toString('base64');
 
   // Generate short caption
   const captionRes = await openai.chat.completions.create({
