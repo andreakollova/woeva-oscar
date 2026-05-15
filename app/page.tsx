@@ -18,9 +18,8 @@ export default function Home() {
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
-
-  const input = "w-full bg-[#141414] border border-[#222] rounded-2xl px-4 py-3.5 text-white placeholder-[#555] focus:outline-none focus:border-[#C8FF00] transition-colors text-[15px]";
 
   async function loadQueue() {
     const res = await fetch('/api/queue', { headers: { 'x-password': password } });
@@ -99,21 +98,40 @@ export default function Home() {
 
   if (!authed) {
     return (
-      <main className="min-h-screen bg-[#0A0A0A] flex items-center justify-center p-5">
-        <div className="w-full max-w-[360px]">
-          <div className="text-center mb-10">
-            <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-[#C8FF00] mb-5">
-              <span className="text-2xl font-black text-black">O</span>
+      <main style={{ minHeight: '100vh', background: '#F7F7F5', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
+        <div style={{ width: '100%', maxWidth: '360px' }}>
+          {/* Logo */}
+          <div style={{ textAlign: 'center', marginBottom: '40px' }}>
+            <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '64px', height: '64px', borderRadius: '20px', background: '#C8FF00', marginBottom: '16px', boxShadow: '0 4px 20px rgba(200,255,0,0.3)' }}>
+              <span style={{ fontSize: '28px', fontWeight: 900, color: '#000', lineHeight: 1 }}>O</span>
             </div>
-            <h1 className="text-2xl font-bold text-white tracking-tight">Woeva Oscar</h1>
-            <p className="text-[#555] text-sm mt-1">Instagram automation</p>
+            <h1 style={{ fontSize: '26px', fontWeight: 800, color: '#111', margin: '0 0 6px', letterSpacing: '-0.5px' }}>Woeva Oscar</h1>
+            <p style={{ fontSize: '14px', color: '#999', margin: 0 }}>Instagram content automation</p>
           </div>
-          <form onSubmit={checkPassword} className="space-y-3">
-            <input type="password" placeholder="Heslo" value={password}
+
+          {/* Form */}
+          <form onSubmit={checkPassword} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <input
+              type="password"
+              placeholder="Heslo"
+              value={password}
               onChange={e => { setPassword(e.target.value); setError(''); }}
-              className={input} autoFocus />
-            {error && <p className="text-red-400 text-sm px-1">{error}</p>}
-            <button type="submit" className="w-full bg-[#C8FF00] text-black font-bold py-3.5 rounded-2xl hover:bg-[#b4e800] transition-all text-[15px]">
+              autoFocus
+              style={{
+                width: '100%', boxSizing: 'border-box',
+                background: '#fff', border: '1.5px solid #E5E5E5', borderRadius: '14px',
+                padding: '14px 16px', fontSize: '15px', color: '#111',
+                outline: 'none', transition: 'border-color 0.15s',
+              }}
+              onFocus={e => e.target.style.borderColor = '#C8FF00'}
+              onBlur={e => e.target.style.borderColor = '#E5E5E5'}
+            />
+            {error && <p style={{ color: '#ef4444', fontSize: '13px', margin: '0 4px' }}>{error}</p>}
+            <button type="submit" style={{
+              background: '#111', color: '#fff', border: 'none', borderRadius: '14px',
+              padding: '14px', fontSize: '15px', fontWeight: 700, cursor: 'pointer',
+              transition: 'opacity 0.15s',
+            }}>
               Vstúpiť
             </button>
           </form>
@@ -123,45 +141,80 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-[#0A0A0A] p-5 pt-10 pb-16">
-      <div className="w-full max-w-[480px] mx-auto">
+    <main style={{ minHeight: '100vh', background: '#F7F7F5', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif', paddingBottom: '60px' }}>
+      <div style={{ width: '100%', maxWidth: '520px', margin: '0 auto', padding: '0 16px' }}>
 
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[#C8FF00] flex items-center justify-center flex-shrink-0">
-              <span className="text-lg font-black text-black">O</span>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '24px 0 20px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{ width: '42px', height: '42px', borderRadius: '13px', background: '#C8FF00', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 2px 8px rgba(200,255,0,0.25)' }}>
+              <span style={{ fontSize: '18px', fontWeight: 900, color: '#000' }}>O</span>
             </div>
             <div>
-              <h1 className="text-lg font-bold text-white leading-tight">Woeva Oscar</h1>
-              <p className="text-[#555] text-xs">{pending.length} fotiek v rade</p>
+              <div style={{ fontSize: '17px', fontWeight: 700, color: '#111', lineHeight: 1.2 }}>Woeva Oscar</div>
+              <div style={{ fontSize: '12px', color: '#999', marginTop: '1px' }}>
+                {pending.length === 0 ? 'Front je prázdny' : `${pending.length} fotiek v rade`}
+              </div>
             </div>
           </div>
-          <button onClick={triggerNow} disabled={loading || pending.length === 0}
-            className="px-4 py-2 bg-[#1a1a1a] border border-[#333] text-[#888] text-sm rounded-xl hover:border-[#C8FF00]/40 hover:text-white disabled:opacity-30 transition-all">
-            {loading ? 'Generujem...' : '▶ Spusti teraz'}
+          <button
+            onClick={triggerNow}
+            disabled={loading || pending.length === 0}
+            style={{
+              padding: '9px 16px', borderRadius: '12px', fontSize: '13px', fontWeight: 600,
+              border: '1.5px solid #E5E5E5', background: '#fff', color: '#555',
+              cursor: pending.length === 0 ? 'not-allowed' : 'pointer',
+              opacity: pending.length === 0 ? 0.4 : 1, transition: 'all 0.15s',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {loading ? 'Generujem...' : '▶ Spusti'}
           </button>
         </div>
 
-        {error && <p className="text-red-400 text-sm mb-4 px-1">{error}</p>}
+        {error && (
+          <div style={{ background: '#fff0f0', border: '1px solid #fecaca', borderRadius: '12px', padding: '12px 16px', marginBottom: '16px', color: '#ef4444', fontSize: '13px' }}>
+            {error}
+          </div>
+        )}
 
-        {/* Upload */}
-        <label className="cursor-pointer block mb-6">
-          <input ref={fileRef} type="file" accept="image/*" multiple className="hidden"
+        {/* Upload area */}
+        <label
+          style={{ display: 'block', cursor: 'pointer', marginBottom: '24px' }}
+          onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={e => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files); }}
+        >
+          <input ref={fileRef} type="file" accept="image/*" multiple style={{ display: 'none' }}
             onChange={e => { if (e.target.files?.length) handleFiles(e.target.files); }} />
-          <div className="border border-dashed border-[#333] rounded-2xl py-5 px-4 flex items-center justify-center gap-3 hover:border-[#C8FF00]/40 transition-colors">
-            <span className="text-2xl">📷</span>
-            <span className="text-[#555] text-sm">
-              {uploading ? 'Nahrávam...' : 'Nahraj fotky (môžeš vybrať viac naraz)'}
-            </span>
+          <div style={{
+            background: dragOver ? '#f0fff0' : '#fff',
+            border: `2px dashed ${dragOver ? '#C8FF00' : '#E5E5E5'}`,
+            borderRadius: '18px', padding: '32px 20px',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px',
+            transition: 'all 0.15s',
+          }}>
+            <div style={{ width: '48px', height: '48px', borderRadius: '14px', background: '#F7F7F5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '22px' }}>
+              📷
+            </div>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: '14px', fontWeight: 600, color: '#333' }}>
+                {uploading ? 'Nahrávam...' : 'Nahraj fotky'}
+              </div>
+              <div style={{ fontSize: '12px', color: '#aaa', marginTop: '3px' }}>
+                Môžeš vybrať viac naraz alebo pretiahnuť sem
+              </div>
+            </div>
           </div>
         </label>
 
-        {/* Queue */}
+        {/* Pending queue */}
         {pending.length > 0 && (
-          <>
-            <p className="text-[#555] text-xs uppercase tracking-widest px-1 mb-3">Front ({pending.length})</p>
-            <div className="space-y-2 mb-8">
+          <div style={{ marginBottom: '28px' }}>
+            <div style={{ fontSize: '11px', fontWeight: 700, color: '#aaa', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '10px', paddingLeft: '2px' }}>
+              Front · {pending.length}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {pending.map((item, idx) => (
                 <QueueRow key={item.id} item={item} idx={idx} total={pending.length}
                   onToggle={() => toggleStyle(item)}
@@ -171,29 +224,30 @@ export default function Home() {
                 />
               ))}
             </div>
-          </>
+          </div>
         )}
 
         {/* Sent/posted */}
         {sent.length > 0 && (
-          <>
-            <p className="text-[#555] text-xs uppercase tracking-widest px-1 mb-3">Odoslané</p>
-            <div className="space-y-2">
+          <div>
+            <div style={{ fontSize: '11px', fontWeight: 700, color: '#aaa', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '10px', paddingLeft: '2px' }}>
+              Odoslané · {sent.length}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {sent.map((item, idx) => (
                 <QueueRow key={item.id} item={item} idx={idx} total={sent.length}
-                  onToggle={() => {}}
-                  onDelete={() => deleteItem(item.id)}
-                  onMove={() => {}}
-                  isNext={false}
-                  readOnly
+                  onToggle={() => {}} onDelete={() => deleteItem(item.id)}
+                  onMove={() => {}} isNext={false} readOnly
                 />
               ))}
             </div>
-          </>
+          </div>
         )}
 
         {queue.length === 0 && !uploading && (
-          <p className="text-center text-[#444] text-sm mt-16">Front je prázdny — nahraj fotky</p>
+          <div style={{ textAlign: 'center', color: '#bbb', fontSize: '14px', marginTop: '60px' }}>
+            Nahraj prvé fotky a Oscar sa postará o zvyšok
+          </div>
         )}
       </div>
     </main>
@@ -206,63 +260,78 @@ function QueueRow({ item, idx, total, onToggle, onDelete, onMove, isNext, readOn
   onMove: (dir: 'up' | 'down') => void;
   isNext: boolean; readOnly?: boolean;
 }) {
-  const statusColor = {
-    pending: isNext ? '#C8FF00' : '#555',
-    processing: '#C8FF00',
-    sent: '#888',
-    posted: '#22c55e',
-    failed: '#ef4444',
-  }[item.status];
-
-  const statusLabel = {
-    pending: isNext ? 'Dalsia' : 'Caka',
-    processing: 'Generujem...',
-    sent: 'V Discorde',
-    posted: 'Postnuté',
-    failed: 'Chyba',
+  const statusConfig = {
+    pending: { label: isNext ? 'Ďalšia' : 'Čaká', color: isNext ? '#111' : '#999', bg: isNext ? '#C8FF00' : '#F0F0F0' },
+    processing: { label: 'Generuje...', color: '#111', bg: '#C8FF00' },
+    sent: { label: 'V Discorde', color: '#555', bg: '#F0F0F0' },
+    posted: { label: 'Postnuté', color: '#16a34a', bg: '#dcfce7' },
+    failed: { label: 'Chyba', color: '#dc2626', bg: '#fee2e2' },
   }[item.status];
 
   return (
-    <div className={`bg-[#141414] border rounded-2xl p-3 flex items-center gap-3 ${isNext ? 'border-[#C8FF00]/30' : 'border-[#222]'}`}>
-      {/* Thumb */}
-      <div className="w-12 h-12 rounded-xl overflow-hidden flex-shrink-0 bg-[#222]">
-        <img src={item.photo_url} alt="" className="w-full h-full object-cover" />
+    <div style={{
+      background: '#fff',
+      border: `1.5px solid ${isNext ? '#C8FF00' : '#EFEFEF'}`,
+      borderRadius: '16px', padding: '12px',
+      display: 'flex', alignItems: 'center', gap: '12px',
+      boxShadow: isNext ? '0 2px 12px rgba(200,255,0,0.15)' : '0 1px 3px rgba(0,0,0,0.04)',
+      transition: 'all 0.15s',
+    }}>
+      {/* Thumbnail */}
+      <div style={{ width: '52px', height: '52px', borderRadius: '12px', overflow: 'hidden', flexShrink: 0, background: '#F5F5F5' }}>
+        <img src={item.photo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
       </div>
 
       {/* Info */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="text-xs font-mono text-[#444]">#{idx + 1}</span>
-          <span style={{ color: statusColor }} className="text-xs font-semibold">{statusLabel}</span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+          <span style={{
+            fontSize: '11px', fontWeight: 700, padding: '2px 8px', borderRadius: '6px',
+            color: statusConfig?.color, background: statusConfig?.bg,
+          }}>
+            {statusConfig?.label}
+          </span>
+          <span style={{ fontSize: '11px', color: '#ccc', fontFamily: 'monospace' }}>#{idx + 1}</span>
         </div>
         {!readOnly ? (
-          <button onClick={onToggle}
-            className={`text-xs px-2.5 py-1 rounded-lg font-semibold transition-all ${
-              item.style === 'dark'
-                ? 'bg-[#1a1a1a] text-[#888] border border-[#333] hover:border-[#555]'
-                : 'bg-[#fffbe6]/10 text-[#ffd700] border border-[#ffd700]/30 hover:border-[#ffd700]/60'
-            }`}>
+          <button onClick={onToggle} style={{
+            fontSize: '12px', fontWeight: 600, padding: '4px 10px', borderRadius: '8px', cursor: 'pointer',
+            border: '1.5px solid #EFEFEF', background: item.style === 'dark' ? '#F7F7F7' : '#FFFBEB',
+            color: item.style === 'dark' ? '#555' : '#B45309', transition: 'all 0.15s',
+          }}>
             {item.style === 'dark' ? '🌑 Dark' : '☀️ Light'}
           </button>
         ) : (
-          <span className={`text-xs px-2 py-0.5 rounded-lg ${item.style === 'dark' ? 'text-[#555]' : 'text-[#888]'}`}>
+          <span style={{ fontSize: '12px', color: '#bbb' }}>
             {item.style === 'dark' ? '🌑 Dark' : '☀️ Light'}
           </span>
         )}
       </div>
 
       {/* Actions */}
-      <div className="flex items-center gap-1 flex-shrink-0">
+      <div style={{ display: 'flex', alignItems: 'center', gap: '2px', flexShrink: 0 }}>
         {!readOnly && (
           <>
-            <button onClick={() => onMove('up')} disabled={idx === 0}
-              className="w-7 h-7 flex items-center justify-center text-[#444] hover:text-[#888] disabled:opacity-20 transition-colors text-xs">↑</button>
-            <button onClick={() => onMove('down')} disabled={idx === total - 1}
-              className="w-7 h-7 flex items-center justify-center text-[#444] hover:text-[#888] disabled:opacity-20 transition-colors text-xs">↓</button>
+            <button onClick={() => onMove('up')} disabled={idx === 0} style={{
+              width: '30px', height: '30px', border: 'none', background: 'none', cursor: idx === 0 ? 'not-allowed' : 'pointer',
+              color: '#ccc', fontSize: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              opacity: idx === 0 ? 0.3 : 1, borderRadius: '8px', transition: 'all 0.15s',
+            }}>↑</button>
+            <button onClick={() => onMove('down')} disabled={idx === total - 1} style={{
+              width: '30px', height: '30px', border: 'none', background: 'none', cursor: idx === total - 1 ? 'not-allowed' : 'pointer',
+              color: '#ccc', fontSize: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              opacity: idx === total - 1 ? 0.3 : 1, borderRadius: '8px', transition: 'all 0.15s',
+            }}>↓</button>
           </>
         )}
-        <button onClick={onDelete}
-          className="w-7 h-7 flex items-center justify-center text-[#333] hover:text-red-400 transition-colors text-xs">✕</button>
+        <button onClick={onDelete} style={{
+          width: '30px', height: '30px', border: 'none', background: 'none', cursor: 'pointer',
+          color: '#ddd', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          borderRadius: '8px', transition: 'color 0.15s',
+        }}
+          onMouseEnter={e => (e.currentTarget.style.color = '#ef4444')}
+          onMouseLeave={e => (e.currentTarget.style.color = '#ddd')}
+        >✕</button>
       </div>
     </div>
   );
