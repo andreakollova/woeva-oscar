@@ -278,8 +278,13 @@ function QueueRow({ item, idx, total, onToggle, onDelete, onMove, isNext, readOn
       transition: 'all 0.15s',
     }}>
       {/* Thumbnail */}
-      <div style={{ width: '52px', height: '52px', borderRadius: '12px', overflow: 'hidden', flexShrink: 0, background: '#F5F5F5' }}>
-        <img src={item.photo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+      <div style={{ width: '52px', height: '52px', borderRadius: '12px', overflow: 'hidden', flexShrink: 0, background: '#F0F0F0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <img
+          src={item.photo_url}
+          alt=""
+          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+          onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+        />
       </div>
 
       {/* Info */}
