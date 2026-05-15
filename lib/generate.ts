@@ -88,7 +88,7 @@ export async function generateOscarImage(photoUrl: string, style: 'dark' | 'ligh
     n: 1,
   } as Parameters<typeof openai.images.edit>[0]);
 
-  const rawBuffer = Buffer.from(result.data[0].b64_json!, 'base64');
+  const rawBuffer = Buffer.from(result.data![0].b64_json!, 'base64');
   const resizedBuffer = await sharp(rawBuffer)
     .resize(1080, 1350, { fit: 'cover', position: 'centre' })
     .png()
