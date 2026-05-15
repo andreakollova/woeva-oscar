@@ -72,7 +72,7 @@ async function editDiscordMessage(
 
   const form = new FormData();
   form.append('payload_json', JSON.stringify(payload));
-  form.append('files[0]', new Blob([imageBuffer.buffer.slice(imageBuffer.byteOffset, imageBuffer.byteOffset + imageBuffer.byteLength)], { type: 'image/png' }), filename);
+  form.append('files[0]', new Blob([new Uint8Array(imageBuffer)], { type: 'image/png' }), filename);
 
   await fetch(`https://discord.com/api/v10/channels/${channelId}/messages/${messageId}`, {
     method: 'PATCH',
