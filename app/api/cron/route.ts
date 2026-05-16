@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { generateOscarImage } from '@/lib/generate';
 
 const db = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_KEY!);
 
-export const maxDuration = 300;
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   const authHeader = req.headers.get('authorization');
@@ -16,11 +15,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // Get next pending item
+  // Get next pending lifestyle item
   const { data: item, error: fetchError } = await db
     .from('oscar_queue')
     .select('*')
     .eq('status', 'pending')
+    .eq('type', 'lifestyle')
     .order('position', { ascending: true })
     .limit(1)
     .single();
@@ -29,28 +29,30 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message: 'No pending items' });
   }
 
+  // Get an unused lifestyle caption
+  const { data: captionRow } = await db
+    .from('oscar_captions')
+    .select('*')
+    .eq('type', 'lifestyle')
+    .eq('used', false)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .single();
+
+  if (!captionRow) {
+    return NextResponse.json({ error: 'No captions available — upload some first' }, { status: 400 });
+  }
+
+  const caption = captionRow.text;
+
   try {
-    const { imageBase64, caption } = await generateOscarImage(item.photo_url, item.style);
+    // Mark caption as used
+    await db.from('oscar_captions').update({ used: true }).eq('id', captionRow.id);
 
-    // Upload generated image to Supabase
-    const imageBuffer = Buffer.from(imageBase64, 'base64');
-    const filename = `oscar-${Date.now()}.png`;
-    const { error: uploadError } = await db.storage
-      .from('oscar-generated')
-      .upload(filename, imageBuffer, { contentType: 'image/png', upsert: false });
+    const discordMessageId = await sendToDiscord(item.id, item.photo_url, caption);
 
-    if (uploadError) throw uploadError;
-
-    const { data: urlData } = db.storage.from('oscar-generated').getPublicUrl(filename);
-    const generatedUrl = urlData.publicUrl;
-
-    // Send to Discord with buttons
-    const discordMessageId = await sendToDiscord(item.id, imageBuffer, filename, caption, item.style);
-
-    // Update queue item
     await db.from('oscar_queue').update({
       status: 'sent',
-      generated_url: generatedUrl,
       caption,
       discord_message_id: discordMessageId,
     }).eq('id', item.id);
@@ -63,47 +65,28 @@ export async function POST(req: NextRequest) {
   }
 }
 
-async function sendToDiscord(
-  itemId: string,
-  imageBuffer: Buffer,
-  filename: string,
-  caption: string,
-  style: string,
-): Promise<string> {
+async function sendToDiscord(itemId: string, photoUrl: string, caption: string): Promise<string> {
   const channelId = process.env.DISCORD_CHANNEL_ID!;
   const botToken = process.env.DISCORD_BOT_TOKEN!;
 
   const payload = {
-    content: `**Woeva Oscar** \u{1F3AC} \u2014 *${style}*\n\n${caption}`,
+    content: `**Woeva Oscar** \u{1F5BC}\uFE0F \u2014 *lifestyle*\n\n${caption}`,
+    embeds: [{ image: { url: photoUrl } }],
     components: [
       {
         type: 1,
         components: [
-          {
-            type: 2,
-            style: 2,
-            label: '\u267B\uFE0F Recreate',
-            custom_id: `oscar_recreate:${itemId}`,
-          },
-          {
-            type: 2,
-            style: 3,
-            label: '\u{1F4F8} Post to IG',
-            custom_id: `oscar_post:${itemId}`,
-          },
+          { type: 2, style: 2, label: '\u267B\uFE0F Popis', custom_id: `oscar_regen_caption:${itemId}` },
+          { type: 2, style: 3, label: '\u{1F4F8} Post to IG', custom_id: `oscar_post:${itemId}` },
         ],
       },
     ],
   };
 
-  const form = new FormData();
-  form.append('payload_json', JSON.stringify(payload));
-  form.append('files[0]', new Blob([new Uint8Array(imageBuffer)], { type: 'image/png' }), filename);
-
   const res = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
     method: 'POST',
-    headers: { Authorization: `Bot ${botToken}` },
-    body: form,
+    headers: { Authorization: `Bot ${botToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
   });
 
   if (!res.ok) {

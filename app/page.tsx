@@ -5,7 +5,6 @@ import { useState, useEffect, useRef } from 'react';
 type QueueItem = {
   id: string;
   photo_url: string;
-  style: 'dark' | 'light';
   type: 'lifestyle' | 'animation';
   status: 'pending' | 'processing' | 'sent' | 'posted' | 'failed';
   position: number;
@@ -23,6 +22,9 @@ export default function Home() {
   const [loadingAnim, setLoadingAnim] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [tab, setTab] = useState<'lifestyle' | 'animation'>('lifestyle');
+  const [captionText, setCaptionText] = useState('');
+  const [savingCaptions, setSavingCaptions] = useState(false);
+  const [captionCounts, setCaptionCounts] = useState({ lifestyle: 0, animation: 0 });
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function loadQueue() {
@@ -30,7 +32,17 @@ export default function Home() {
     if (res.ok) setQueue(await res.json());
   }
 
-  useEffect(() => { if (authed) loadQueue(); }, [authed]);
+  async function loadCaptionCounts() {
+    const res = await fetch('/api/upload-caption', { headers: { 'x-password': password } });
+    if (res.ok) setCaptionCounts(await res.json());
+  }
+
+  useEffect(() => {
+    if (authed) {
+      loadQueue();
+      loadCaptionCounts();
+    }
+  }, [authed]);
 
   function checkPassword(e: React.FormEvent) {
     e.preventDefault();
@@ -43,7 +55,6 @@ export default function Home() {
     for (const file of Array.from(files)) {
       const fd = new FormData();
       fd.append('file', file);
-      fd.append('style', 'dark');
       await fetch('/api/upload', {
         method: 'POST',
         headers: { 'x-password': password },
@@ -55,13 +66,23 @@ export default function Home() {
     if (fileRef.current) fileRef.current.value = '';
   }
 
-  async function toggleStyle(item: QueueItem) {
-    await fetch(`/api/queue/${item.id}`, {
-      method: 'PATCH',
+  async function saveCaptions() {
+    if (!captionText.trim()) return;
+    setSavingCaptions(true);
+    const captions = captionText.split('---').map(c => c.trim()).filter(c => c.length > 0);
+    const res = await fetch('/api/upload-caption', {
+      method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-password': password },
-      body: JSON.stringify({ style: item.style === 'dark' ? 'light' : 'dark' }),
+      body: JSON.stringify({ captions, type: tab }),
     });
-    loadQueue();
+    const data = await res.json();
+    setSavingCaptions(false);
+    if (res.ok) {
+      setCaptionText('');
+      loadCaptionCounts();
+    } else {
+      setError(data.error || 'Chyba pri ukladani popisov');
+    }
   }
 
   async function deleteItem(id: string) {
@@ -73,14 +94,15 @@ export default function Home() {
   }
 
   async function moveItem(id: string, dir: 'up' | 'down') {
-    const idx = queue.findIndex(q => q.id === id);
+    const filtered = queue.filter(q => q.type === tab && q.status === 'pending');
+    const idx = filtered.findIndex(q => q.id === id);
     if (dir === 'up' && idx === 0) return;
-    if (dir === 'down' && idx === queue.length - 1) return;
+    if (dir === 'down' && idx === filtered.length - 1) return;
     const swapIdx = dir === 'up' ? idx - 1 : idx + 1;
-    const swapItem = queue[swapIdx];
+    const swapItem = filtered[swapIdx];
     await Promise.all([
       fetch(`/api/queue/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'x-password': password }, body: JSON.stringify({ position: swapItem.position }) }),
-      fetch(`/api/queue/${swapItem.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'x-password': password }, body: JSON.stringify({ position: queue[idx].position }) }),
+      fetch(`/api/queue/${swapItem.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'x-password': password }, body: JSON.stringify({ position: filtered[idx].position }) }),
     ]);
     loadQueue();
   }
@@ -93,17 +115,17 @@ export default function Home() {
     const data = await res.json();
     setter(false);
     if (!res.ok) setError(data.error || 'Chyba');
-    else { setError(''); loadQueue(); }
+    else { setError(''); loadQueue(); loadCaptionCounts(); }
   }
 
   const pending = queue.filter(q => q.status === 'pending' && q.type === tab);
   const sent = queue.filter(q => q.status !== 'pending' && q.type === tab);
+  const captionCount = captionCounts[tab];
 
   if (!authed) {
     return (
       <main style={{ minHeight: '100vh', background: '#F7F7F5', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
         <div style={{ width: '100%', maxWidth: '360px' }}>
-          {/* Logo */}
           <div style={{ textAlign: 'center', marginBottom: '40px' }}>
             <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '64px', height: '64px', borderRadius: '20px', background: '#C8FF00', marginBottom: '16px', boxShadow: '0 4px 20px rgba(200,255,0,0.3)' }}>
               <span style={{ fontSize: '28px', fontWeight: 900, color: '#000', lineHeight: 1 }}>O</span>
@@ -111,8 +133,6 @@ export default function Home() {
             <h1 style={{ fontSize: '26px', fontWeight: 800, color: '#111', margin: '0 0 6px', letterSpacing: '-0.5px' }}>Woeva Oscar</h1>
             <p style={{ fontSize: '14px', color: '#999', margin: 0 }}>Instagram content automation</p>
           </div>
-
-          {/* Form */}
           <form onSubmit={checkPassword} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             <input
               type="password"
@@ -133,7 +153,6 @@ export default function Home() {
             <button type="submit" style={{
               background: '#111', color: '#fff', border: 'none', borderRadius: '14px',
               padding: '14px', fontSize: '15px', fontWeight: 700, cursor: 'pointer',
-              transition: 'opacity 0.15s',
             }}>
               Vstúpiť
             </button>
@@ -157,6 +176,7 @@ export default function Home() {
               <div style={{ fontSize: '17px', fontWeight: 700, color: '#111', lineHeight: 1.2 }}>Woeva Oscar</div>
               <div style={{ fontSize: '12px', color: '#999', marginTop: '1px' }}>
                 {pending.length === 0 ? 'Front je prázdny' : `${pending.length} v rade`}
+                {captionCount > 0 && ` · ${captionCount} popisov`}
               </div>
             </div>
           </div>
@@ -178,7 +198,7 @@ export default function Home() {
         {/* Tabs */}
         <div style={{ display: 'flex', gap: '6px', marginBottom: '20px', background: '#EFEFEF', borderRadius: '12px', padding: '4px' }}>
           {(['lifestyle', 'animation'] as const).map(t => (
-            <button key={t} onClick={() => { setTab(t); if (fileRef.current) fileRef.current.value = ''; }}
+            <button key={t} onClick={() => { setTab(t); if (fileRef.current) fileRef.current.value = ''; setCaptionText(''); }}
               style={{
                 flex: 1, padding: '8px', borderRadius: '9px', border: 'none', cursor: 'pointer',
                 fontSize: '13px', fontWeight: 600, transition: 'all 0.15s',
@@ -197,9 +217,9 @@ export default function Home() {
           </div>
         )}
 
-        {/* Upload area */}
+        {/* Media upload area */}
         <label
-          style={{ display: 'block', cursor: 'pointer', marginBottom: '24px' }}
+          style={{ display: 'block', cursor: 'pointer', marginBottom: '12px' }}
           onDragOver={e => { e.preventDefault(); setDragOver(true); }}
           onDragLeave={() => setDragOver(false)}
           onDrop={e => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files); }}
@@ -209,23 +229,64 @@ export default function Home() {
           <div style={{
             background: dragOver ? '#f0fff0' : '#fff',
             border: `2px dashed ${dragOver ? '#C8FF00' : '#E5E5E5'}`,
-            borderRadius: '18px', padding: '32px 20px',
-            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px',
+            borderRadius: '18px', padding: '28px 20px',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px',
             transition: 'all 0.15s',
           }}>
-            <div style={{ width: '48px', height: '48px', borderRadius: '14px', background: '#F7F7F5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '22px' }}>
+            <div style={{ width: '44px', height: '44px', borderRadius: '14px', background: '#F7F7F5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px' }}>
               {tab === 'animation' ? '🎬' : '📷'}
             </div>
             <div style={{ textAlign: 'center' }}>
               <div style={{ fontSize: '14px', fontWeight: 600, color: '#333' }}>
                 {uploading ? 'Nahrávam...' : tab === 'animation' ? 'Nahraj videá' : 'Nahraj fotky'}
               </div>
-              <div style={{ fontSize: '12px', color: '#aaa', marginTop: '3px' }}>
+              <div style={{ fontSize: '12px', color: '#aaa', marginTop: '2px' }}>
                 Môžeš vybrať viac naraz alebo pretiahnuť sem
               </div>
             </div>
           </div>
         </label>
+
+        {/* Caption upload area */}
+        <div style={{ marginBottom: '28px' }}>
+          <div style={{ background: '#fff', border: '1.5px solid #EFEFEF', borderRadius: '18px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: '#333' }}>
+                ✏️ Popisy {captionCount > 0 && <span style={{ background: '#C8FF00', color: '#111', borderRadius: '6px', padding: '1px 7px', fontSize: '11px', fontWeight: 700, marginLeft: '6px' }}>{captionCount} voľných</span>}
+              </div>
+              <button
+                onClick={saveCaptions}
+                disabled={savingCaptions || !captionText.trim()}
+                style={{
+                  fontSize: '12px', fontWeight: 700, padding: '5px 14px', borderRadius: '8px',
+                  border: 'none', background: captionText.trim() ? '#111' : '#E5E5E5',
+                  color: captionText.trim() ? '#fff' : '#aaa',
+                  cursor: captionText.trim() ? 'pointer' : 'not-allowed', transition: 'all 0.15s',
+                }}
+              >
+                {savingCaptions ? 'Ukladám...' : 'Uložiť'}
+              </button>
+            </div>
+            <textarea
+              value={captionText}
+              onChange={e => setCaptionText(e.target.value)}
+              placeholder={`Vlož popisy pre ${tab === 'lifestyle' ? 'fotky' : 'videá'} — oddeľ ich pomocou ---\n\nNapr.:\nNiekedy ani nejde o ten event.\nIde o ten pocit... ✨\n\nDownloadni si Woeva.\nApp Store & Google Play.\n---\nVäčšina dobrých spomienok\nzačína vetou: „Tak poďme." 🌙\n\nDownloadni si Woeva.\nApp Store & Google Play.`}
+              rows={6}
+              style={{
+                width: '100%', boxSizing: 'border-box',
+                border: '1.5px solid #F0F0F0', borderRadius: '12px',
+                padding: '12px', fontSize: '13px', color: '#333', lineHeight: 1.5,
+                resize: 'vertical', outline: 'none', background: '#FAFAFA',
+                fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+              }}
+              onFocus={e => e.target.style.borderColor = '#C8FF00'}
+              onBlur={e => e.target.style.borderColor = '#F0F0F0'}
+            />
+            <div style={{ fontSize: '11px', color: '#bbb' }}>
+              Každý popis oddeľ pomocou <strong>---</strong> na novom riadku
+            </div>
+          </div>
+        </div>
 
         {/* Pending queue */}
         {pending.length > 0 && (
@@ -236,7 +297,6 @@ export default function Home() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {pending.map((item, idx) => (
                 <QueueRow key={item.id} item={item} idx={idx} total={pending.length}
-                  onToggle={() => toggleStyle(item)}
                   onDelete={() => deleteItem(item.id)}
                   onMove={dir => moveItem(item.id, dir)}
                   isNext={idx === 0}
@@ -255,9 +315,9 @@ export default function Home() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {sent.map((item, idx) => (
                 <QueueRow key={item.id} item={item} idx={idx} total={sent.length}
-                  onToggle={() => {}} onDelete={() => deleteItem(item.id)}
+                  onDelete={() => deleteItem(item.id)}
                   onMove={() => {}} isNext={false} readOnly
-                  password={password} onCaptionRegenerated={loadQueue}
+                  password={password} onCaptionRegenerated={() => { loadQueue(); loadCaptionCounts(); }}
                 />
               ))}
             </div>
@@ -265,8 +325,8 @@ export default function Home() {
         )}
 
         {queue.length === 0 && !uploading && (
-          <div style={{ textAlign: 'center', color: '#bbb', fontSize: '14px', marginTop: '60px' }}>
-            Nahraj prvé fotky a Oscar sa postará o zvyšok
+          <div style={{ textAlign: 'center', color: '#bbb', fontSize: '14px', marginTop: '40px' }}>
+            Nahraj prvé fotky a popisy — Oscar sa postará o zvyšok
           </div>
         )}
       </div>
@@ -274,9 +334,9 @@ export default function Home() {
   );
 }
 
-function QueueRow({ item, idx, total, onToggle, onDelete, onMove, isNext, readOnly, password, onCaptionRegenerated }: {
+function QueueRow({ item, idx, total, onDelete, onMove, isNext, readOnly, password, onCaptionRegenerated }: {
   item: QueueItem; idx: number; total: number;
-  onToggle: () => void; onDelete: () => void;
+  onDelete: () => void;
   onMove: (dir: 'up' | 'down') => void;
   isNext: boolean; readOnly?: boolean;
   password?: string; onCaptionRegenerated?: () => void;
@@ -284,7 +344,7 @@ function QueueRow({ item, idx, total, onToggle, onDelete, onMove, isNext, readOn
   const [regenCaption, setRegenCaption] = useState(false);
   const statusConfig = {
     pending: { label: isNext ? 'Ďalšia' : 'Čaká', color: isNext ? '#111' : '#999', bg: isNext ? '#C8FF00' : '#F0F0F0' },
-    processing: { label: 'Generuje...', color: '#111', bg: '#C8FF00' },
+    processing: { label: 'Spracováva...', color: '#111', bg: '#C8FF00' },
     sent: { label: 'V Discorde', color: '#555', bg: '#F0F0F0' },
     posted: { label: 'Postnuté', color: '#16a34a', bg: '#dcfce7' },
     failed: { label: 'Chyba', color: '#dc2626', bg: '#fee2e2' },
@@ -324,22 +384,11 @@ function QueueRow({ item, idx, total, onToggle, onDelete, onMove, isNext, readOn
           </span>
           <span style={{ fontSize: '11px', color: '#ccc', fontFamily: 'monospace' }}>#{idx + 1}</span>
         </div>
-        {!readOnly ? (
-          <button onClick={onToggle} style={{
-            fontSize: '12px', fontWeight: 600, padding: '4px 10px', borderRadius: '8px', cursor: 'pointer',
-            border: '1.5px solid #EFEFEF', background: item.style === 'dark' ? '#F7F7F7' : '#FFFBEB',
-            color: item.style === 'dark' ? '#555' : '#B45309', transition: 'all 0.15s',
-          }}>
-            {item.style === 'dark' ? '🌑 Dark' : '☀️ Light'}
-          </button>
-        ) : (
+        {readOnly ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: '12px', color: '#bbb' }}>
-              {item.style === 'dark' ? '🌑 Dark' : '☀️ Light'}
-            </span>
             {item.caption && (
-              <span style={{ fontSize: '11px', color: '#ccc', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                · {item.caption.replace(/\n/g, ' ')}
+              <span style={{ fontSize: '11px', color: '#bbb', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {item.caption.replace(/\n/g, ' ')}
               </span>
             )}
             <button
@@ -363,6 +412,10 @@ function QueueRow({ item, idx, total, onToggle, onDelete, onMove, isNext, readOn
               {regenCaption ? '...' : '↺ Popis'}
             </button>
           </div>
+        ) : (
+          <div style={{ fontSize: '12px', color: '#ccc' }}>
+            {item.type === 'lifestyle' ? 'Fotka' : 'Video'} · čaká na odoslanie
+          </div>
         )}
       </div>
 
@@ -373,12 +426,12 @@ function QueueRow({ item, idx, total, onToggle, onDelete, onMove, isNext, readOn
             <button onClick={() => onMove('up')} disabled={idx === 0} style={{
               width: '30px', height: '30px', border: 'none', background: 'none', cursor: idx === 0 ? 'not-allowed' : 'pointer',
               color: '#ccc', fontSize: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              opacity: idx === 0 ? 0.3 : 1, borderRadius: '8px', transition: 'all 0.15s',
+              opacity: idx === 0 ? 0.3 : 1, borderRadius: '8px',
             }}>↑</button>
             <button onClick={() => onMove('down')} disabled={idx === total - 1} style={{
               width: '30px', height: '30px', border: 'none', background: 'none', cursor: idx === total - 1 ? 'not-allowed' : 'pointer',
               color: '#ccc', fontSize: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              opacity: idx === total - 1 ? 0.3 : 1, borderRadius: '8px', transition: 'all 0.15s',
+              opacity: idx === total - 1 ? 0.3 : 1, borderRadius: '8px',
             }}>↓</button>
           </>
         )}

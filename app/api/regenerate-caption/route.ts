@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import OpenAI from 'openai';
 
 const db = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_KEY!);
 
@@ -15,46 +14,35 @@ export async function POST(req: NextRequest) {
   const { data: item } = await db.from('oscar_queue').select('*').eq('id', itemId).single();
   if (!item) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  // Get next unused caption matching item type
+  const { data: captionRow } = await db
+    .from('oscar_captions')
+    .select('*')
+    .eq('type', item.type || 'lifestyle')
+    .eq('used', false)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .single();
 
-  const captionRes = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
-    messages: [{
-      role: 'user',
-      content: `Write an Instagram caption in Slovak for Woeva — a free community events app. The post is a ${item.style} aesthetic lifestyle editorial photo.
+  if (!captionRow) {
+    return NextResponse.json({ error: 'No more captions available' }, { status: 400 });
+  }
 
-Style rules:
-- Emotional, poetic, short lines (2-5 words per line), line breaks between thoughts
-- Evokes a feeling or mood — NOT always about events directly
-- Captures a feeling like: being glad you went out, good energy, good people, spontaneous moments
-- Ends with: "Downloadni si Woeva.\nApp Store & Google Play."
-- Add 1 fitting emoji at the end of the first stanza (not in CTA)
-- No hashtags, no English, no formal language — casual, warm, Gen Z Slovak
-- Total length: 4-7 short lines + the CTA
+  await db.from('oscar_captions').update({ used: true }).eq('id', captionRow.id);
 
-Examples:
-"Niekedy ani nejde o ten event.\nIde o ten pocit,\nkeď si rád,\nže si neostal doma. ✨\n\nDownloadni si Woeva.\nApp Store & Google Play."
-
-"Väčšina dobrých spomienok\nzačína vetou:\n„Tak poďme." 🌙\n\nDownloadni si Woeva.\nApp Store & Google Play."`,
-    }],
-    max_tokens: 120,
-  });
-
-  const rawCaption = captionRes.choices[0].message.content?.trim() || '';
-  const caption = rawCaption + '\n\n#woeva';
-
-  // Update DB
+  const caption = captionRow.text;
   await db.from('oscar_queue').update({ caption }).eq('id', itemId);
 
   // Edit Discord message if exists
   if (item.discord_message_id) {
     const channelId = process.env.DISCORD_CHANNEL_ID!;
     const botToken = process.env.DISCORD_BOT_TOKEN!;
+    const label = item.type === 'animation' ? 'animácia' : 'lifestyle';
     await fetch(`https://discord.com/api/v10/channels/${channelId}/messages/${item.discord_message_id}`, {
       method: 'PATCH',
       headers: { Authorization: `Bot ${botToken}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        content: `**Woeva Oscar** \u{1F3AC} \u2014 *${item.style}*\n\n${caption}`,
+        content: `**Woeva Oscar** \u{1F3AC} \u2014 *${label}*\n\n${caption}`,
       }),
     });
   }

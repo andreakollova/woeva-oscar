@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { generateAnimationCaption } from '@/lib/generate';
 
 const db = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_KEY!);
 
@@ -29,8 +28,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message: 'No pending animation items' });
   }
 
+  // Get an unused animation caption
+  const { data: captionRow } = await db
+    .from('oscar_captions')
+    .select('*')
+    .eq('type', 'animation')
+    .eq('used', false)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .single();
+
+  if (!captionRow) {
+    return NextResponse.json({ error: 'No animation captions available — upload some first' }, { status: 400 });
+  }
+
+  const caption = captionRow.text;
+
   try {
-    const caption = await generateAnimationCaption();
+    await db.from('oscar_captions').update({ used: true }).eq('id', captionRow.id);
 
     const discordMessageId = await sendVideoToDiscord(item.id, item.photo_url, caption);
 
@@ -52,7 +67,6 @@ async function sendVideoToDiscord(itemId: string, videoUrl: string, caption: str
   const channelId = process.env.DISCORD_CHANNEL_ID!;
   const botToken = process.env.DISCORD_BOT_TOKEN!;
 
-  // Download video from Supabase
   const videoRes = await fetch(videoUrl);
   const videoBuffer = Buffer.from(await videoRes.arrayBuffer());
   const ext = videoUrl.split('.').pop()?.split('?')[0] || 'mp4';
