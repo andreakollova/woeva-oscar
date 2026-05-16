@@ -6,6 +6,7 @@ type QueueItem = {
   id: string;
   photo_url: string;
   style: 'dark' | 'light';
+  type: 'lifestyle' | 'animation';
   status: 'pending' | 'processing' | 'sent' | 'posted' | 'failed';
   position: number;
   caption: string | null;
@@ -19,7 +20,9 @@ export default function Home() {
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadingAnim, setLoadingAnim] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [tab, setTab] = useState<'lifestyle' | 'animation'>('lifestyle');
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function loadQueue() {
@@ -83,19 +86,18 @@ export default function Home() {
   }
 
   async function triggerNow() {
-    setLoading(true);
-    const res = await fetch('/api/cron', {
-      method: 'POST',
-      headers: { 'x-password': password },
-    });
+    const endpoint = tab === 'lifestyle' ? '/api/cron' : '/api/cron-animation';
+    const setter = tab === 'lifestyle' ? setLoading : setLoadingAnim;
+    setter(true);
+    const res = await fetch(endpoint, { method: 'POST', headers: { 'x-password': password } });
     const data = await res.json();
-    setLoading(false);
+    setter(false);
     if (!res.ok) setError(data.error || 'Chyba');
     else { setError(''); loadQueue(); }
   }
 
-  const pending = queue.filter(q => q.status === 'pending');
-  const sent = queue.filter(q => q.status !== 'pending');
+  const pending = queue.filter(q => q.status === 'pending' && q.type === tab);
+  const sent = queue.filter(q => q.status !== 'pending' && q.type === tab);
 
   if (!authed) {
     return (
@@ -146,7 +148,7 @@ export default function Home() {
       <div style={{ width: '100%', maxWidth: '520px', margin: '0 auto', padding: '0 16px' }}>
 
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '24px 0 20px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '24px 0 16px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <div style={{ width: '42px', height: '42px', borderRadius: '13px', background: '#C8FF00', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 2px 8px rgba(200,255,0,0.25)' }}>
               <span style={{ fontSize: '18px', fontWeight: 900, color: '#000' }}>O</span>
@@ -154,13 +156,13 @@ export default function Home() {
             <div>
               <div style={{ fontSize: '17px', fontWeight: 700, color: '#111', lineHeight: 1.2 }}>Woeva Oscar</div>
               <div style={{ fontSize: '12px', color: '#999', marginTop: '1px' }}>
-                {pending.length === 0 ? 'Front je prázdny' : `${pending.length} fotiek v rade`}
+                {pending.length === 0 ? 'Front je prázdny' : `${pending.length} v rade`}
               </div>
             </div>
           </div>
           <button
             onClick={triggerNow}
-            disabled={loading || pending.length === 0}
+            disabled={(tab === 'lifestyle' ? loading : loadingAnim) || pending.length === 0}
             style={{
               padding: '9px 16px', borderRadius: '12px', fontSize: '13px', fontWeight: 600,
               border: '1.5px solid #E5E5E5', background: '#fff', color: '#555',
@@ -169,8 +171,24 @@ export default function Home() {
               whiteSpace: 'nowrap',
             }}
           >
-            {loading ? 'Generujem...' : '▶ Spusti'}
+            {(tab === 'lifestyle' ? loading : loadingAnim) ? 'Posielam...' : '▶ Spusti'}
           </button>
+        </div>
+
+        {/* Tabs */}
+        <div style={{ display: 'flex', gap: '6px', marginBottom: '20px', background: '#EFEFEF', borderRadius: '12px', padding: '4px' }}>
+          {(['lifestyle', 'animation'] as const).map(t => (
+            <button key={t} onClick={() => { setTab(t); if (fileRef.current) fileRef.current.value = ''; }}
+              style={{
+                flex: 1, padding: '8px', borderRadius: '9px', border: 'none', cursor: 'pointer',
+                fontSize: '13px', fontWeight: 600, transition: 'all 0.15s',
+                background: tab === t ? '#fff' : 'transparent',
+                color: tab === t ? '#111' : '#888',
+                boxShadow: tab === t ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
+              }}>
+              {t === 'lifestyle' ? '🖼 Lifestyle · 9:15' : '🎬 Animácia · 15:00'}
+            </button>
+          ))}
         </div>
 
         {error && (
@@ -186,7 +204,7 @@ export default function Home() {
           onDragLeave={() => setDragOver(false)}
           onDrop={e => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files); }}
         >
-          <input ref={fileRef} type="file" accept="image/*" multiple style={{ display: 'none' }}
+          <input ref={fileRef} type="file" accept={tab === 'animation' ? 'video/*' : 'image/*'} multiple style={{ display: 'none' }}
             onChange={e => { if (e.target.files?.length) handleFiles(e.target.files); }} />
           <div style={{
             background: dragOver ? '#f0fff0' : '#fff',
@@ -196,11 +214,11 @@ export default function Home() {
             transition: 'all 0.15s',
           }}>
             <div style={{ width: '48px', height: '48px', borderRadius: '14px', background: '#F7F7F5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '22px' }}>
-              📷
+              {tab === 'animation' ? '🎬' : '📷'}
             </div>
             <div style={{ textAlign: 'center' }}>
               <div style={{ fontSize: '14px', fontWeight: 600, color: '#333' }}>
-                {uploading ? 'Nahrávam...' : 'Nahraj fotky'}
+                {uploading ? 'Nahrávam...' : tab === 'animation' ? 'Nahraj videá' : 'Nahraj fotky'}
               </div>
               <div style={{ fontSize: '12px', color: '#aaa', marginTop: '3px' }}>
                 Môžeš vybrať viac naraz alebo pretiahnuť sem
@@ -283,12 +301,16 @@ function QueueRow({ item, idx, total, onToggle, onDelete, onMove, isNext, readOn
     }}>
       {/* Thumbnail */}
       <div style={{ width: '52px', height: '52px', borderRadius: '12px', overflow: 'hidden', flexShrink: 0, background: '#F0F0F0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <img
-          src={item.photo_url}
-          alt=""
-          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-          onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
-        />
+        {item.type === 'animation' ? (
+          <span style={{ fontSize: '22px' }}>🎬</span>
+        ) : (
+          <img
+            src={item.photo_url}
+            alt=""
+            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+          />
+        )}
       </div>
 
       {/* Info */}

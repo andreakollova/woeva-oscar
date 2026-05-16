@@ -3,6 +3,10 @@
     {
       "path": "/api/cron",
       "schedule": "15 7 * * *"
+    },
+    {
+      "path": "/api/cron-animation",
+      "schedule": "0 13 * * *"
     }
   ]
 }

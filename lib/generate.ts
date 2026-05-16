@@ -61,6 +61,39 @@ Use the reference image as the exact style template — match the lime green lin
 
 MOST IMPORTANT: The output must ALWAYS look like a REAL bright iPhone photograph with tasteful editorial design — never obvious AI art.`;
 
+export async function generateAnimationCaption(): Promise<string> {
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+  const captionRes = await openai.chat.completions.create({
+    model: 'gpt-4o-mini',
+    messages: [{
+      role: 'user',
+      content: `Write a short engaging question in Slovak for a Woeva Instagram Reel. Woeva is a free community events app in Bratislava/Slovakia.
+
+Rules:
+- It's a QUESTION that invites people to comment/engage
+- Related to going out, social moments, city life, events, spontaneous plans, good energy, people, places
+- Casual, warm, Gen Z Slovak — no formal language
+- 1-3 short lines max
+- Add 1 fitting emoji at the end
+- End with a new line and "#woeva"
+- No other hashtags
+
+Examples:
+"Kam ideš, keď potrebuješ vypnúť hlavu? 🌿\n\n#woeva"
+"Aký bol tvoj najlepší random plán, ktorý vznikol na poslednú chvíľu? ✨\n\n#woeva"
+"S kým by si išiel/a na spontánnu coffee walk? ☕️\n\n#woeva"
+"Čo je podľa teba green flag energia? 🤍\n\n#woeva"
+"Aký je tvoj ideálny "idem len na chvíľu von" večer? 🌙\n\n#woeva"
+
+Generate ONE question, different from the examples.`,
+    }],
+    max_tokens: 80,
+  });
+
+  return captionRes.choices[0].message.content?.trim() || 'Kam ideš dnes večer? 🌙\n\n#woeva';
+}
+
 export async function generateOscarImage(photoUrl: string, style: 'dark' | 'light'): Promise<{ imageBase64: string; caption: string }> {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
