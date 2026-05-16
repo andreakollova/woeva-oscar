@@ -8,6 +8,7 @@ type QueueItem = {
   style: 'dark' | 'light';
   status: 'pending' | 'processing' | 'sent' | 'posted' | 'failed';
   position: number;
+  caption: string | null;
   created_at: string;
 };
 
@@ -238,6 +239,7 @@ export default function Home() {
                 <QueueRow key={item.id} item={item} idx={idx} total={sent.length}
                   onToggle={() => {}} onDelete={() => deleteItem(item.id)}
                   onMove={() => {}} isNext={false} readOnly
+                  password={password} onCaptionRegenerated={loadQueue}
                 />
               ))}
             </div>
@@ -254,12 +256,14 @@ export default function Home() {
   );
 }
 
-function QueueRow({ item, idx, total, onToggle, onDelete, onMove, isNext, readOnly }: {
+function QueueRow({ item, idx, total, onToggle, onDelete, onMove, isNext, readOnly, password, onCaptionRegenerated }: {
   item: QueueItem; idx: number; total: number;
   onToggle: () => void; onDelete: () => void;
   onMove: (dir: 'up' | 'down') => void;
   isNext: boolean; readOnly?: boolean;
+  password?: string; onCaptionRegenerated?: () => void;
 }) {
+  const [regenCaption, setRegenCaption] = useState(false);
   const statusConfig = {
     pending: { label: isNext ? 'Ďalšia' : 'Čaká', color: isNext ? '#111' : '#999', bg: isNext ? '#C8FF00' : '#F0F0F0' },
     processing: { label: 'Generuje...', color: '#111', bg: '#C8FF00' },
@@ -307,9 +311,36 @@ function QueueRow({ item, idx, total, onToggle, onDelete, onMove, isNext, readOn
             {item.style === 'dark' ? '🌑 Dark' : '☀️ Light'}
           </button>
         ) : (
-          <span style={{ fontSize: '12px', color: '#bbb' }}>
-            {item.style === 'dark' ? '🌑 Dark' : '☀️ Light'}
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '12px', color: '#bbb' }}>
+              {item.style === 'dark' ? '🌑 Dark' : '☀️ Light'}
+            </span>
+            {item.caption && (
+              <span style={{ fontSize: '11px', color: '#ccc', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                · {item.caption.replace(/\n/g, ' ')}
+              </span>
+            )}
+            <button
+              disabled={regenCaption}
+              onClick={async () => {
+                setRegenCaption(true);
+                await fetch('/api/regenerate-caption', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', 'x-password': password || '' },
+                  body: JSON.stringify({ itemId: item.id }),
+                });
+                setRegenCaption(false);
+                onCaptionRegenerated?.();
+              }}
+              style={{
+                fontSize: '11px', padding: '2px 8px', borderRadius: '6px', cursor: 'pointer',
+                border: '1.5px solid #E5E5E5', background: '#fff', color: '#888',
+                opacity: regenCaption ? 0.5 : 1,
+              }}
+            >
+              {regenCaption ? '...' : '↺ Popis'}
+            </button>
+          </div>
         )}
       </div>
 

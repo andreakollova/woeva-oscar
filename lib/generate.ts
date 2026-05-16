@@ -121,7 +121,8 @@ Examples of the feeling/tone to match:
     max_tokens: 120,
   });
 
-  const caption = captionRes.choices[0].message.content?.trim() || 'discover what\'s happening near you → woeva app';
+  const rawCaption = captionRes.choices[0].message.content?.trim() || 'Život vyzerá lepšie,\nkeď nezostaneš doma. 🌆\n\nDownloadni si Woeva.\nApp Store & Google Play.';
+  const caption = rawCaption + '\n\n#woeva';
 
   return { imageBase64, caption };
 }
