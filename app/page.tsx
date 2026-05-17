@@ -21,10 +21,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [loadingAnim, setLoadingAnim] = useState(false);
   const [dragOver, setDragOver] = useState(false);
-  const [tab, setTab] = useState<'lifestyle' | 'animation' | 'event'>('lifestyle');
-  const [eventUploading, setEventUploading] = useState(false);
-  const [eventResult, setEventResult] = useState<{ title?: string; date?: string; city?: string } | null>(null);
-  const eventFileRef = useRef<HTMLInputElement>(null);
+  const [tab, setTab] = useState<'lifestyle' | 'animation'>('lifestyle');
   const [captionText, setCaptionText] = useState('');
   const [savingCaptions, setSavingCaptions] = useState(false);
   const [captionCounts, setCaptionCounts] = useState({ lifestyle: 0, animation: 0 });
@@ -121,8 +118,8 @@ export default function Home() {
     else { setError(''); loadQueue(); loadCaptionCounts(); }
   }
 
-  const pending = queue.filter(q => q.status === 'pending' && q.type === tab && tab !== 'event');
-  const sent = queue.filter(q => q.status !== 'pending' && q.type === tab && tab !== 'event');
+  const pending = queue.filter(q => q.status === 'pending' && q.type === tab);
+  const sent = queue.filter(q => q.status !== 'pending' && q.type === tab);
   const captionCount = captionCounts[tab];
 
   if (!authed) {
@@ -200,8 +197,8 @@ export default function Home() {
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: '6px', marginBottom: '20px', background: '#EFEFEF', borderRadius: '12px', padding: '4px' }}>
-          {(['lifestyle', 'animation', 'event'] as const).map(t => (
-            <button key={t} onClick={() => { setTab(t as any); if (fileRef.current) fileRef.current.value = ''; setCaptionText(''); setEventResult(null); }}
+          {(['lifestyle', 'animation'] as const).map(t => (
+            <button key={t} onClick={() => { setTab(t); if (fileRef.current) fileRef.current.value = ''; setCaptionText(''); }}
               style={{
                 flex: 1, padding: '8px', borderRadius: '9px', border: 'none', cursor: 'pointer',
                 fontSize: '13px', fontWeight: 600, transition: 'all 0.15s',
@@ -209,7 +206,7 @@ export default function Home() {
                 color: tab === t ? '#111' : '#888',
                 boxShadow: tab === t ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
               }}>
-              {t === 'lifestyle' ? '🖼 Lifestyle · 9:15' : t === 'animation' ? '🎬 Animácia · 15:00' : '📅 Event'}
+              {t === 'lifestyle' ? '🖼 Lifestyle · 9:15' : '🎬 Animácia · 15:00'}
             </button>
           ))}
         </div>
@@ -220,71 +217,9 @@ export default function Home() {
           </div>
         )}
 
-        {/* Event tab */}
-        {tab === 'event' && (
-          <div style={{ marginBottom: '28px' }}>
-            <input
-              ref={eventFileRef}
-              type="file"
-              accept="image/*"
-              style={{ display: 'none' }}
-              onChange={async e => {
-                const file = e.target.files?.[0];
-                if (!file) return;
-                setEventUploading(true);
-                setEventResult(null);
-                const fd = new FormData();
-                fd.append('file', file);
-                const res = await fetch('/api/submit-event', {
-                  method: 'POST',
-                  headers: { 'x-password': password },
-                  body: fd,
-                });
-                const data = await res.json();
-                setEventUploading(false);
-                if (eventFileRef.current) eventFileRef.current.value = '';
-                if (res.ok) setEventResult(data.extracted);
-                else setError(data.error || 'Chyba pri spracovaní');
-              }}
-            />
-            <div
-              onClick={() => !eventUploading && eventFileRef.current?.click()}
-              style={{
-                background: '#fff',
-                border: `2px dashed ${eventUploading ? '#C8FF00' : '#E5E5E5'}`,
-                borderRadius: '18px', padding: '28px 20px',
-                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px',
-                cursor: eventUploading ? 'not-allowed' : 'pointer', transition: 'all 0.15s',
-              }}
-            >
-              <div style={{ width: '44px', height: '44px', borderRadius: '14px', background: '#F7F7F5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px' }}>
-                📅
-              </div>
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: '14px', fontWeight: 600, color: '#333' }}>
-                  {eventUploading ? 'Spracovávam screenshot...' : 'Nahraj screenshot eventu'}
-                </div>
-                <div style={{ fontSize: '12px', color: '#aaa', marginTop: '2px' }}>
-                  AI prečíta detaily a pošle do Discordu na schválenie
-                </div>
-              </div>
-            </div>
-            {eventResult && (
-              <div style={{ marginTop: '12px', background: '#f0fff0', border: '1.5px solid #C8FF00', borderRadius: '14px', padding: '14px 16px', fontSize: '13px', color: '#333' }}>
-                <div style={{ fontWeight: 700, marginBottom: '6px' }}>Odoslané do Discordu</div>
-                {eventResult.title && <div><strong>Názov:</strong> {eventResult.title}</div>}
-                {eventResult.date && <div><strong>Dátum:</strong> {eventResult.date}</div>}
-                {eventResult.city && <div><strong>Mesto:</strong> {eventResult.city}</div>}
-                <div style={{ marginTop: '8px', fontSize: '12px', color: '#888' }}>
-                  Skontroluj Discord — tam môžeš upraviť a pridať do app
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
         {/* Media upload area */}
-        <label style={{ display: tab === 'event' ? 'none' : 'block', cursor: 'pointer', marginBottom: '12px' }}
+        <label
+          style={{ display: 'block', cursor: 'pointer', marginBottom: '12px' }}
           onDragOver={e => { e.preventDefault(); setDragOver(true); }}
           onDragLeave={() => setDragOver(false)}
           onDrop={e => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files); }}
@@ -313,7 +248,7 @@ export default function Home() {
         </label>
 
         {/* Caption upload area */}
-        <div style={{ marginBottom: '28px', display: tab === 'event' ? 'none' : 'block' }}>
+        <div style={{ marginBottom: '28px' }}>
           <div style={{ background: '#fff', border: '1.5px solid #EFEFEF', borderRadius: '18px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div style={{ fontSize: '13px', fontWeight: 600, color: '#333' }}>
