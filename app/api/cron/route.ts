@@ -5,6 +5,10 @@ const db = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_KEY!);
 
 export const maxDuration = 60;
 
+export async function GET(req: NextRequest) {
+  return POST(req);
+}
+
 export async function POST(req: NextRequest) {
   const authHeader = req.headers.get('authorization');
   const xPassword = req.headers.get('x-password');
