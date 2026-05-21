@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import forge from 'node-forge';
+import * as forge from 'node-forge';
 import JSZip from 'jszip';
 
 function sha1Hex(data: Buffer): string {
@@ -8,6 +8,8 @@ function sha1Hex(data: Buffer): string {
   md.update(data.toString('binary'));
   return md.digest().toHex();
 }
+
+export const runtime = 'nodejs';
 
 // GET /api/wallet-pass?event_id=xxx&token=yyy
 // Generates .pkpass directly on Vercel — no Supabase Edge Function involved
@@ -54,6 +56,7 @@ export async function GET(req: NextRequest) {
     .maybeSingle();
   if (!attendee) return new NextResponse('Not attending', { status: 403 });
 
+  try {
   // Load certs (stored as base64 in env vars)
   const certPem = Buffer.from(process.env.PASS_CERT!, 'base64').toString('utf8');
   const keyPem = Buffer.from(process.env.PASS_KEY!, 'base64').toString('utf8');
@@ -132,4 +135,8 @@ export async function GET(req: NextRequest) {
       'Cache-Control': 'no-store',
     },
   });
+  } catch (err: any) {
+    console.error('wallet-pass error:', err);
+    return new NextResponse(`Pass generation error: ${err?.message ?? String(err)}`, { status: 500 });
+  }
 }
