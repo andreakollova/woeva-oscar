@@ -136,7 +136,7 @@ export async function GET(req: NextRequest) {
   zip.file('icon@2x.png', iconPng);
   const pkpass = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
 
-  return new NextResponse(pkpass, {
+  return new NextResponse(new Uint8Array(pkpass), {
     status: 200,
     headers: {
       'Content-Type': 'application/vnd.apple.pkpass',
