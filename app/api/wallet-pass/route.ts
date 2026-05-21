@@ -97,16 +97,24 @@ export async function GET(req: NextRequest) {
   const manifest: Record<string, string> = { 'pass.json': sha1Hex(passJsonBuf) };
   const manifestBuf = Buffer.from(JSON.stringify(manifest), 'utf8');
 
-  // PKCS7 signature
+  // Load certs for signing
   const cert = forge.pki.certificateFromPem(certPem);
   const key = forge.pki.privateKeyFromPem(keyPem);
   const wwdr = forge.pki.certificateFromPem(wwdrPem);
 
-  const p7 = forge.pkcs7.createSignedData();
-  p7.content = forge.util.createBuffer(manifestBuf.toString('binary'));
-  p7.addCertificate(cert);
-  p7.addCertificate(wwdr);
-  p7.addSigner({
+  // Minimal 1x1 PNG icon (required by iOS Wallet — pass silently rejected without it)
+  const iconPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwADhQGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+  manifest['icon.png'] = sha1Hex(iconPng);
+  manifest['icon@2x.png'] = sha1Hex(iconPng);
+  // Re-serialize manifest now that icons are included
+  const manifestFinalBuf = Buffer.from(JSON.stringify(manifest), 'utf8');
+
+  // Re-sign with updated manifest
+  const p7final = forge.pkcs7.createSignedData();
+  p7final.content = forge.util.createBuffer(manifestFinalBuf.toString('binary'));
+  p7final.addCertificate(cert);
+  p7final.addCertificate(wwdr);
+  p7final.addSigner({
     key, certificate: cert,
     digestAlgorithm: forge.pki.oids.sha1,
     authenticatedAttributes: [
@@ -115,16 +123,17 @@ export async function GET(req: NextRequest) {
       { type: forge.pki.oids.signingTime },
     ],
   });
-  p7.sign({ detached: true });
-
-  const sigDer = forge.asn1.toDer(p7.toAsn1()).getBytes();
-  const sigBuf = Buffer.from(sigDer, 'binary');
+  p7final.sign({ detached: true });
+  const sigFinalDer = forge.asn1.toDer(p7final.toAsn1()).getBytes();
+  const sigFinalBuf = Buffer.from(sigFinalDer, 'binary');
 
   // Build ZIP
   const zip = new JSZip();
   zip.file('pass.json', passJsonBuf);
-  zip.file('manifest.json', manifestBuf);
-  zip.file('signature', sigBuf);
+  zip.file('manifest.json', manifestFinalBuf);
+  zip.file('signature', sigFinalBuf);
+  zip.file('icon.png', iconPng);
+  zip.file('icon@2x.png', iconPng);
   const pkpass = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
 
   return new NextResponse(pkpass, {
