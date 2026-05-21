@@ -11,11 +11,14 @@ function sha1Hex(data: Buffer): string {
   return md.digest().toHex();
 }
 
+function formatDate(dateStr: string): string {
+  if (!dateStr) return '';
+  const d = new Date(dateStr + 'T00:00:00');
+  return d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+}
+
 export const runtime = 'nodejs';
 
-// GET /api/wallet-pass?event_id=xxx&token=yyy
-// Generates .pkpass directly on Vercel — no Supabase Edge Function involved
-// Safari downloads .pkpass and iOS opens Apple Wallet dialog directly
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const event_id = searchParams.get('event_id');
@@ -25,14 +28,11 @@ export async function GET(req: NextRequest) {
     return new NextResponse('Missing event_id or token', { status: 400 });
   }
 
-  // Decode JWT payload to get user_id (no signature verification needed —
-  // attendance check below ensures the user actually has a ticket for this event)
   let userId: string;
   try {
     const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8'));
     userId = payload.sub;
     if (!userId) throw new Error('no sub');
-    // Reject clearly expired tokens (>1h grace period)
     if (payload.exp && payload.exp < Math.floor(Date.now() / 1000) - 3600) {
       return new NextResponse('Token expired', { status: 401 });
     }
@@ -44,29 +44,29 @@ export async function GET(req: NextRequest) {
   const serviceKey = process.env.SUPABASE_KEY!;
   const db = createClient(supabaseUrl, serviceKey);
 
-  // Get event
-  const { data: event } = await db.from('events').select('*').eq('id', event_id).single();
-  if (!event) return new NextResponse('Event not found', { status: 404 });
+  const [{ data: event }, { data: profile }, { data: attendee }] = await Promise.all([
+    db.from('events').select('*').eq('id', event_id).single(),
+    db.from('profiles').select('name').eq('id', userId).single(),
+    db.from('event_attendees').select('id').eq('event_id', event_id).eq('user_id', userId).limit(1).maybeSingle(),
+  ]);
 
-  // Check attendance
-  const { data: attendee } = await db
-    .from('event_attendees')
-    .select('id')
-    .eq('event_id', event_id)
-    .eq('user_id', userId)
-    .limit(1)
-    .maybeSingle();
+  if (!event) return new NextResponse('Event not found', { status: 404 });
   if (!attendee) return new NextResponse('Not attending', { status: 403 });
 
+  const userName = profile?.name ?? '';
+
   try {
-  // Load certs (stored as base64 in env vars)
   const certPem = Buffer.from(process.env.PASS_CERT!, 'base64').toString('utf8');
-  const keyPem = Buffer.from(process.env.PASS_KEY!, 'base64').toString('utf8');
+  const keyPem  = Buffer.from(process.env.PASS_KEY!,  'base64').toString('utf8');
   const wwdrPem = Buffer.from(process.env.WWDR_CERT!, 'base64').toString('utf8');
   const passTypeId = process.env.PASS_TYPE_ID!;
-  const teamId = process.env.TEAM_ID!;
+  const teamId     = process.env.TEAM_ID!;
 
-  // Build pass.json
+  // Format fields to match in-app ticket design
+  const dateValue = event.date ? formatDate(event.date) : '';
+  const timeValue = [event.time, event.duration ? `${event.duration}h duration` : ''].filter(Boolean).join('\n');
+  const locationValue = [event.venue, event.city].filter(Boolean).join(', ');
+
   const passJson = {
     formatVersion: 1,
     passTypeIdentifier: passTypeId,
@@ -74,22 +74,24 @@ export async function GET(req: NextRequest) {
     teamIdentifier: teamId,
     organizationName: 'Woeva',
     description: event.title,
-    logoText: 'Woeva',
-    foregroundColor: 'rgb(10, 10, 10)',
-    backgroundColor: 'rgb(201, 255, 71)',
-    labelColor: 'rgb(10, 10, 10)',
+    logoText: '',
+    foregroundColor: 'rgb(255, 255, 255)',
+    backgroundColor: 'rgb(18, 18, 18)',
+    labelColor: 'rgb(160, 160, 160)',
     eventTicket: {
-      primaryFields: [{ key: 'event', label: 'EVENT', value: event.title }],
+      primaryFields: [
+        { key: 'event', label: 'VALID', value: event.title },
+      ],
       secondaryFields: [
-        ...(event.date ? [{ key: 'date', label: 'DATE', value: event.date }] : []),
-        ...(event.time ? [{ key: 'time', label: 'TIME', value: event.time }] : []),
+        ...(dateValue ? [{ key: 'date', label: 'DATE', value: dateValue }] : []),
+        ...(timeValue ? [{ key: 'time', label: 'TIME', value: timeValue }] : []),
       ],
       auxiliaryFields: [
-        ...(event.venue ? [{ key: 'venue', label: 'VENUE', value: [event.venue, event.city].filter(Boolean).join(', ') }] : []),
+        ...(locationValue ? [{ key: 'location', label: 'LOCATION', value: locationValue }] : []),
       ],
       backFields: [
         { key: 'ticketId', label: 'TICKET ID', value: attendee.id },
-        { key: 'holder', label: 'TICKET HOLDER', value: '' },
+        { key: 'holder', label: 'TICKET HOLDER', value: userName },
         ...(event.price > 0 ? [{ key: 'price', label: 'PRICE PAID', value: `€${Number(event.price).toFixed(2)}` }] : []),
       ],
     },
@@ -98,21 +100,19 @@ export async function GET(req: NextRequest) {
 
   const passJsonBuf = Buffer.from(JSON.stringify(passJson), 'utf8');
   const manifest: Record<string, string> = { 'pass.json': sha1Hex(passJsonBuf) };
-  const manifestBuf = Buffer.from(JSON.stringify(manifest), 'utf8');
 
-  // Load certs for signing
   const cert = forge.pki.certificateFromPem(certPem);
-  const key = forge.pki.privateKeyFromPem(keyPem);
+  const key  = forge.pki.privateKeyFromPem(keyPem);
   const wwdr = forge.pki.certificateFromPem(wwdrPem);
 
-  // Load pass images from pass-assets/
+  // Load static pass assets
   const assetsDir = path.join(process.cwd(), 'pass-assets');
-  const iconPng    = fs.readFileSync(path.join(assetsDir, 'icon.png'));
-  const icon2xPng  = fs.readFileSync(path.join(assetsDir, 'icon@2x.png'));
-  const icon3xPng  = fs.readFileSync(path.join(assetsDir, 'icon@3x.png'));
-  const logoPng    = fs.readFileSync(path.join(assetsDir, 'logo.png'));
-  const logo2xPng  = fs.readFileSync(path.join(assetsDir, 'logo@2x.png'));
-  const logo3xPng  = fs.readFileSync(path.join(assetsDir, 'logo@3x.png'));
+  const iconPng   = fs.readFileSync(path.join(assetsDir, 'icon.png'));
+  const icon2xPng = fs.readFileSync(path.join(assetsDir, 'icon@2x.png'));
+  const icon3xPng = fs.readFileSync(path.join(assetsDir, 'icon@3x.png'));
+  const logoPng   = fs.readFileSync(path.join(assetsDir, 'logo.png'));
+  const logo2xPng = fs.readFileSync(path.join(assetsDir, 'logo@2x.png'));
+  const logo3xPng = fs.readFileSync(path.join(assetsDir, 'logo@3x.png'));
 
   manifest['icon.png']    = sha1Hex(iconPng);
   manifest['icon@2x.png'] = sha1Hex(icon2xPng);
@@ -121,14 +121,27 @@ export async function GET(req: NextRequest) {
   manifest['logo@2x.png'] = sha1Hex(logo2xPng);
   manifest['logo@3x.png'] = sha1Hex(logo3xPng);
 
+  // Fetch event cover image as strip (behind primary fields)
+  let stripBuf: Buffer | null = null;
+  const coverUrl = event.cover_url ?? event.image_url ?? event.photo_url;
+  if (coverUrl) {
+    try {
+      const res = await fetch(coverUrl);
+      if (res.ok) {
+        stripBuf = Buffer.from(await res.arrayBuffer());
+        manifest['strip.png']    = sha1Hex(stripBuf);
+        manifest['strip@2x.png'] = sha1Hex(stripBuf);
+      }
+    } catch { /* no strip if fetch fails */ }
+  }
+
   const manifestFinalBuf = Buffer.from(JSON.stringify(manifest), 'utf8');
 
-  // Sign with final manifest
-  const p7final = forge.pkcs7.createSignedData();
-  p7final.content = forge.util.createBuffer(manifestFinalBuf.toString('binary'));
-  p7final.addCertificate(cert);
-  p7final.addCertificate(wwdr);
-  p7final.addSigner({
+  const p7 = forge.pkcs7.createSignedData();
+  p7.content = forge.util.createBuffer(manifestFinalBuf.toString('binary'));
+  p7.addCertificate(cert);
+  p7.addCertificate(wwdr);
+  p7.addSigner({
     key, certificate: cert,
     digestAlgorithm: forge.pki.oids.sha1,
     authenticatedAttributes: [
@@ -137,21 +150,24 @@ export async function GET(req: NextRequest) {
       { type: forge.pki.oids.signingTime },
     ],
   });
-  p7final.sign({ detached: true });
-  const sigFinalDer = forge.asn1.toDer(p7final.toAsn1()).getBytes();
-  const sigFinalBuf = Buffer.from(sigFinalDer, 'binary');
+  p7.sign({ detached: true });
+  const sigBuf = Buffer.from(forge.asn1.toDer(p7.toAsn1()).getBytes(), 'binary');
 
-  // Build ZIP
   const zip = new JSZip();
   zip.file('pass.json', passJsonBuf);
   zip.file('manifest.json', manifestFinalBuf);
-  zip.file('signature', sigFinalBuf);
+  zip.file('signature', sigBuf);
   zip.file('icon.png', iconPng);
   zip.file('icon@2x.png', icon2xPng);
   zip.file('icon@3x.png', icon3xPng);
   zip.file('logo.png', logoPng);
   zip.file('logo@2x.png', logo2xPng);
   zip.file('logo@3x.png', logo3xPng);
+  if (stripBuf) {
+    zip.file('strip.png', stripBuf);
+    zip.file('strip@2x.png', stripBuf);
+  }
+
   const pkpass = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
 
   return new NextResponse(new Uint8Array(pkpass), {
