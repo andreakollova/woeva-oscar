@@ -4,6 +4,7 @@ import * as forge from 'node-forge';
 import JSZip from 'jszip';
 import fs from 'fs';
 import path from 'path';
+import sharp from 'sharp';
 
 function sha1Hex(data: Buffer): string {
   const md = forge.md.sha1.create();
@@ -125,19 +126,44 @@ export async function GET(req: NextRequest) {
   manifest['logo@2x.png'] = sha1Hex(logo2xPng);
   manifest['logo@3x.png'] = sha1Hex(logo3xPng);
 
-  // Fetch event cover image as strip (behind primary fields)
+  // Build composite strip: lime bar on top + event photo below
+  // Strip @2x dimensions: 750 × 246 px (Apple eventTicket spec)
+  const STRIP_W = 750;
+  const STRIP_H = 246;
+  const LIME_H  = 14; // lime accent bar height in px
+
+  const limeBarBuf = await sharp({
+    create: { width: STRIP_W, height: LIME_H, channels: 3, background: { r: 201, g: 255, b: 71 } },
+  }).png().toBuffer();
+
   let stripBuf: Buffer | null = null;
   const coverUrl = event.cover_url ?? event.image_url ?? event.photo_url;
-  if (coverUrl) {
-    try {
+  try {
+    let photoBuf: Buffer | null = null;
+    if (coverUrl) {
       const res = await fetch(coverUrl);
       if (res.ok) {
-        stripBuf = Buffer.from(await res.arrayBuffer());
-        manifest['strip.png']    = sha1Hex(stripBuf);
-        manifest['strip@2x.png'] = sha1Hex(stripBuf);
+        const raw = Buffer.from(await res.arrayBuffer());
+        photoBuf = await sharp(raw)
+          .resize(STRIP_W, STRIP_H - LIME_H, { fit: 'cover', position: 'centre' })
+          .png()
+          .toBuffer();
       }
-    } catch { /* no strip if fetch fails */ }
-  }
+    }
+    const compositeInputs = photoBuf
+      ? [{ input: limeBarBuf, top: 0, left: 0 }, { input: photoBuf, top: LIME_H, left: 0 }]
+      : [{ input: limeBarBuf, top: 0, left: 0 }];
+
+    stripBuf = await sharp({
+      create: { width: STRIP_W, height: STRIP_H, channels: 3, background: { r: 18, g: 18, b: 18 } },
+    })
+      .composite(compositeInputs)
+      .png()
+      .toBuffer();
+
+    manifest['strip.png']    = sha1Hex(stripBuf);
+    manifest['strip@2x.png'] = sha1Hex(stripBuf);
+  } catch { /* skip strip on error */ }
 
   const manifestFinalBuf = Buffer.from(JSON.stringify(manifest), 'utf8');
 
