@@ -62,10 +62,11 @@ export async function GET(req: NextRequest) {
   const passTypeId = process.env.PASS_TYPE_ID!;
   const teamId     = process.env.TEAM_ID!;
 
-  // Format fields to match in-app ticket design
+  // Format fields
   const dateValue = event.date ? formatDate(event.date) : '';
-  const timeValue = [event.time, event.duration ? `${event.duration}h duration` : ''].filter(Boolean).join('\n');
-  const locationValue = [event.venue, event.city].filter(Boolean).join(', ');
+  const timeValue = event.time ?? '';
+  // Location on two lines: venue on first, city on second
+  const locationValue = [event.venue, event.city].filter(Boolean).join('\n');
 
   const passJson = {
     formatVersion: 1,
@@ -79,19 +80,22 @@ export async function GET(req: NextRequest) {
     backgroundColor: 'rgb(18, 18, 18)',
     labelColor: 'rgb(160, 160, 160)',
     eventTicket: {
-      primaryFields: [
-        { key: 'event', label: 'VALID', value: event.title },
-      ],
+      // Empty primaryFields → strip photo shows clean with no text overlay
+      primaryFields: [],
+      // Single secondaryField → renders full-width below the strip, event title prominent
       secondaryFields: [
-        ...(dateValue ? [{ key: 'date', label: 'DATE', value: dateValue }] : []),
-        ...(timeValue ? [{ key: 'time', label: 'TIME', value: timeValue }] : []),
+        { key: 'event', label: '', value: event.title, textAlignment: 'PKTextAlignmentLeft' },
       ],
+      // DATE and TIME side-by-side, then LOCATION with two-line value
       auxiliaryFields: [
-        ...(locationValue ? [{ key: 'location', label: 'LOCATION', value: locationValue }] : []),
+        ...(dateValue ? [{ key: 'date', label: 'DATE', value: dateValue, textAlignment: 'PKTextAlignmentLeft' }] : []),
+        ...(timeValue ? [{ key: 'time', label: 'TIME', value: timeValue, textAlignment: 'PKTextAlignmentLeft' }] : []),
+        ...(locationValue ? [{ key: 'location', label: 'LOCATION', value: locationValue, textAlignment: 'PKTextAlignmentLeft' }] : []),
       ],
       backFields: [
         { key: 'ticketId', label: 'TICKET ID', value: attendee.id },
         { key: 'holder', label: 'TICKET HOLDER', value: userName },
+        ...(locationValue ? [{ key: 'locationBack', label: 'LOCATION', value: locationValue.replace('\n', ', ') }] : []),
         ...(event.price > 0 ? [{ key: 'price', label: 'PRICE PAID', value: `€${Number(event.price).toFixed(2)}` }] : []),
       ],
     },
