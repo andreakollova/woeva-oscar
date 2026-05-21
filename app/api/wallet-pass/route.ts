@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 // GET /api/wallet-pass?event_id=xxx&token=yyy
-// Proxies to Supabase Edge Function (adding required auth headers server-side)
-// Returns binary .pkpass — Safari opens it directly in Apple Wallet
+// Proxies to Supabase Edge Function (server-side auth headers), streams binary .pkpass back
+// Safari downloads .pkpass and iOS opens Apple Wallet directly
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const event_id = searchParams.get('event_id');
@@ -30,21 +30,7 @@ export async function GET(req: NextRequest) {
     return new NextResponse(`Pass generation failed: ${err}`, { status: 502 });
   }
 
-  const data = await res.json();
-  if (!data.url) {
-    return new NextResponse('No signed URL returned', { status: 502 });
-  }
-
-  // Fetch the actual .pkpass binary from Storage signed URL (server-to-server, no browser restrictions)
-  const passRes = await fetch(data.url, {
-    headers: { 'apikey': anonKey },
-  });
-
-  if (!passRes.ok) {
-    return new NextResponse('Failed to fetch pass from storage', { status: 502 });
-  }
-
-  const passBuffer = await passRes.arrayBuffer();
+  const passBuffer = await res.arrayBuffer();
 
   return new NextResponse(passBuffer, {
     status: 200,
