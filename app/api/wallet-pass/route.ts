@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import * as forge from 'node-forge';
 import JSZip from 'jszip';
+import fs from 'fs';
+import path from 'path';
 
 function sha1Hex(data: Buffer): string {
   const md = forge.md.sha1.create();
@@ -72,6 +74,7 @@ export async function GET(req: NextRequest) {
     teamIdentifier: teamId,
     organizationName: 'Woeva',
     description: event.title,
+    logoText: 'Woeva',
     foregroundColor: 'rgb(10, 10, 10)',
     backgroundColor: 'rgb(201, 255, 71)',
     labelColor: 'rgb(10, 10, 10)',
@@ -102,14 +105,25 @@ export async function GET(req: NextRequest) {
   const key = forge.pki.privateKeyFromPem(keyPem);
   const wwdr = forge.pki.certificateFromPem(wwdrPem);
 
-  // Minimal 1x1 PNG icon (required by iOS Wallet — pass silently rejected without it)
-  const iconPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwADhQGAWjR9awAAAABJRU5ErkJggg==', 'base64');
-  manifest['icon.png'] = sha1Hex(iconPng);
-  manifest['icon@2x.png'] = sha1Hex(iconPng);
-  // Re-serialize manifest now that icons are included
+  // Load pass images from pass-assets/
+  const assetsDir = path.join(process.cwd(), 'pass-assets');
+  const iconPng    = fs.readFileSync(path.join(assetsDir, 'icon.png'));
+  const icon2xPng  = fs.readFileSync(path.join(assetsDir, 'icon@2x.png'));
+  const icon3xPng  = fs.readFileSync(path.join(assetsDir, 'icon@3x.png'));
+  const logoPng    = fs.readFileSync(path.join(assetsDir, 'logo.png'));
+  const logo2xPng  = fs.readFileSync(path.join(assetsDir, 'logo@2x.png'));
+  const logo3xPng  = fs.readFileSync(path.join(assetsDir, 'logo@3x.png'));
+
+  manifest['icon.png']    = sha1Hex(iconPng);
+  manifest['icon@2x.png'] = sha1Hex(icon2xPng);
+  manifest['icon@3x.png'] = sha1Hex(icon3xPng);
+  manifest['logo.png']    = sha1Hex(logoPng);
+  manifest['logo@2x.png'] = sha1Hex(logo2xPng);
+  manifest['logo@3x.png'] = sha1Hex(logo3xPng);
+
   const manifestFinalBuf = Buffer.from(JSON.stringify(manifest), 'utf8');
 
-  // Re-sign with updated manifest
+  // Sign with final manifest
   const p7final = forge.pkcs7.createSignedData();
   p7final.content = forge.util.createBuffer(manifestFinalBuf.toString('binary'));
   p7final.addCertificate(cert);
@@ -133,7 +147,11 @@ export async function GET(req: NextRequest) {
   zip.file('manifest.json', manifestFinalBuf);
   zip.file('signature', sigFinalBuf);
   zip.file('icon.png', iconPng);
-  zip.file('icon@2x.png', iconPng);
+  zip.file('icon@2x.png', icon2xPng);
+  zip.file('icon@3x.png', icon3xPng);
+  zip.file('logo.png', logoPng);
+  zip.file('logo@2x.png', logo2xPng);
+  zip.file('logo@3x.png', logo3xPng);
   const pkpass = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
 
   return new NextResponse(new Uint8Array(pkpass), {
