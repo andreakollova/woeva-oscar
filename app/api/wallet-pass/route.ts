@@ -101,6 +101,8 @@ export async function GET(req: NextRequest) {
       ],
     },
     barcodes: [{ message: attendee.id, format: 'PKBarcodeFormatQR', messageEncoding: 'iso-8859-1' }],
+    // Expire at end of event day (23:59 CET/CEST) — iOS moves it to "Expired" automatically
+    ...(event.date ? { expirationDate: `${event.date}T23:59:00+02:00` } : {}),
   };
 
   const passJsonBuf = Buffer.from(JSON.stringify(passJson), 'utf8');
