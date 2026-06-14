@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 
-const APP_STORE_URL = 'https://apps.apple.com/app/woeva/id6744911513';
+const APP_STORE_URL = 'https://apps.apple.com/sk/app/woeva/id6767314046?l=sk';
 
 function formatDate(date?: string, time?: string) {
   if (!date) return '';

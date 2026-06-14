@@ -15,7 +15,8 @@ function sha1Hex(data: Buffer): string {
 function formatDate(dateStr: string): string {
   if (!dateStr) return '';
   const d = new Date(dateStr + 'T00:00:00');
-  return d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const raw = d.toLocaleDateString('sk-SK', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  return raw.charAt(0).toUpperCase() + raw.slice(1);
 }
 
 export const runtime = 'nodejs';
@@ -65,9 +66,10 @@ export async function GET(req: NextRequest) {
 
   // Format fields
   const dateValue = event.date ? formatDate(event.date) : '';
-  const timeValue = event.time ?? '';
-  // Location on two lines: venue on first, city on second
-  const locationValue = [event.venue, event.city].filter(Boolean).join('\n');
+  const timeValue = event.time ? event.time.slice(0, 5) : '';
+  const dateTimeValue = [dateValue, timeValue].filter(Boolean).join(' · ');
+  // Location: venue + city
+  const locationValue = [event.venue, event.city].filter(Boolean).join(', ');
 
   const passJson = {
     formatVersion: 1,
@@ -87,17 +89,15 @@ export async function GET(req: NextRequest) {
       secondaryFields: [
         { key: 'event', label: '', value: event.title, textAlignment: 'PKTextAlignmentLeft' },
       ],
-      // DATE and TIME side-by-side, then LOCATION with two-line value
       auxiliaryFields: [
-        ...(dateValue ? [{ key: 'date', label: 'DATE', value: dateValue, textAlignment: 'PKTextAlignmentLeft' }] : []),
-        ...(timeValue ? [{ key: 'time', label: 'TIME', value: timeValue, textAlignment: 'PKTextAlignmentLeft' }] : []),
-        ...(locationValue ? [{ key: 'location', label: 'LOCATION', value: locationValue, textAlignment: 'PKTextAlignmentLeft' }] : []),
+        ...(dateTimeValue ? [{ key: 'datetime', label: 'DÁTUM A ČAS', value: dateTimeValue, textAlignment: 'PKTextAlignmentLeft' }] : []),
+        ...(locationValue ? [{ key: 'location', label: 'MIESTO', value: locationValue, textAlignment: 'PKTextAlignmentLeft' }] : []),
       ],
       backFields: [
-        { key: 'ticketId', label: 'TICKET ID', value: attendee.id },
-        { key: 'holder', label: 'TICKET HOLDER', value: userName },
-        ...(locationValue ? [{ key: 'locationBack', label: 'LOCATION', value: locationValue.replace('\n', ', ') }] : []),
-        ...(event.price > 0 ? [{ key: 'price', label: 'PRICE PAID', value: `€${Number(event.price).toFixed(2)}` }] : []),
+        { key: 'ticketId', label: 'ID LÍSTKA', value: attendee.id },
+        { key: 'holder', label: 'DRŽITEĽ LÍSTKA', value: userName },
+        ...(locationValue ? [{ key: 'locationBack', label: 'MIESTO', value: locationValue }] : []),
+        ...(event.price > 0 ? [{ key: 'price', label: 'ZAPLATENÁ SUMA', value: `€${Number(event.price).toFixed(2)}` }] : []),
       ],
     },
     barcodes: [{ message: attendee.id, format: 'PKBarcodeFormatQR', messageEncoding: 'iso-8859-1' }],
@@ -128,36 +128,65 @@ export async function GET(req: NextRequest) {
   manifest['logo@2x.png'] = sha1Hex(logo2xPng);
   manifest['logo@3x.png'] = sha1Hex(logo3xPng);
 
-  // Build composite strip: lime bar on top + event photo below
+  // Build composite strip matching Woeva ticket design
   // Strip @2x dimensions: 750 × 246 px (Apple eventTicket spec)
   const STRIP_W = 750;
   const STRIP_H = 246;
-  const LIME_H  = 14; // lime accent bar height in px
-
-  const limeBarBuf = await sharp({
-    create: { width: STRIP_W, height: LIME_H, channels: 3, background: { r: 201, g: 255, b: 71 } },
-  }).png().toBuffer();
 
   let stripBuf: Buffer | null = null;
   const coverUrl = event.cover_url ?? event.image_url ?? event.photo_url;
   try {
-    let photoBuf: Buffer | null = null;
+    const compositeInputs: { input: Buffer; top: number; left: number; blend?: string }[] = [];
+
+    // 1. Event photo (full strip, darkened)
     if (coverUrl) {
       const res = await fetch(coverUrl);
       if (res.ok) {
         const raw = Buffer.from(await res.arrayBuffer());
-        photoBuf = await sharp(raw)
-          .resize(STRIP_W, STRIP_H - LIME_H, { fit: 'cover', position: 'centre' })
+        const photoBuf = await sharp(raw)
+          .resize(STRIP_W, STRIP_H, { fit: 'cover', position: 'centre' })
           .png()
           .toBuffer();
+        compositeInputs.push({ input: photoBuf, top: 0, left: 0 });
       }
     }
-    const compositeInputs = photoBuf
-      ? [{ input: limeBarBuf, top: 0, left: 0 }, { input: photoBuf, top: LIME_H, left: 0 }]
-      : [{ input: limeBarBuf, top: 0, left: 0 }];
+
+    // 2. Dark overlay (rgba 0,0,0,0.55)
+    const overlayBuf = await sharp({
+      create: { width: STRIP_W, height: STRIP_H, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0.55 } },
+    }).png().toBuffer();
+    compositeInputs.push({ input: overlayBuf, top: 0, left: 0, blend: 'over' } as any);
+
+    // 3. Lime accent bar at bottom (10px)
+    const LIME_H = 10;
+    const limeBarBuf = await sharp({
+      create: { width: STRIP_W, height: LIME_H, channels: 3, background: { r: 185, g: 255, b: 0 } },
+    }).png().toBuffer();
+    compositeInputs.push({ input: limeBarBuf, top: STRIP_H - LIME_H, left: 0 });
+
+    // 4. "VALID TICKET" SVG pill — top right
+    const pillSvg = Buffer.from(
+      `<svg width="200" height="40" xmlns="http://www.w3.org/2000/svg">
+        <rect x="0" y="0" width="200" height="40" rx="20" fill="rgba(255,255,255,0.15)"/>
+        <text x="100" y="27" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+              font-size="14" font-weight="700" fill="#B9FF00" text-anchor="middle" letter-spacing="1.5">VALID TICKET</text>
+      </svg>`
+    );
+    compositeInputs.push({ input: pillSvg, top: 20, left: STRIP_W - 220 } as any);
+
+    // 5. Event title text overlay — bottom left
+    const titleText = (event.title ?? '').replace(/[<>&"']/g, c => ({ '<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&apos;' }[c as '<']!));
+    const truncated = titleText.length > 32 ? titleText.slice(0, 31) + '…' : titleText;
+    const titleSvg = Buffer.from(
+      `<svg width="600" height="60" xmlns="http://www.w3.org/2000/svg">
+        <text x="0" y="48" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+              font-size="44" font-weight="800" fill="white" letter-spacing="-1">${truncated}</text>
+      </svg>`
+    );
+    compositeInputs.push({ input: titleSvg, top: STRIP_H - LIME_H - 70, left: 28 } as any);
 
     stripBuf = await sharp({
-      create: { width: STRIP_W, height: STRIP_H, channels: 3, background: { r: 18, g: 18, b: 18 } },
+      create: { width: STRIP_W, height: STRIP_H, channels: 3, background: { r: 17, g: 17, b: 17 } },
     })
       .composite(compositeInputs)
       .png()
