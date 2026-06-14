@@ -48,16 +48,12 @@ function WalletLoader() {
       <a ref={linkRef} href={passUrlRef.current} style={{ display: 'none' }} aria-hidden="true" />
 
       {/* Logo */}
-      <div style={{
-        width: 64, height: 64, backgroundColor: '#C9FF47', borderRadius: 18,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        marginBottom: 32, fontSize: 28, fontWeight: 800, color: '#0f0f0f', letterSpacing: -1,
-      }}>W</div>
+      <img src="/assets/mainlogoapp.png" alt="Woeva" style={{ height: 36, width: 'auto', marginBottom: 40 }} />
 
       {status === 'error' && (
         <>
-          <p style={{ color: '#fff', fontSize: 18, fontWeight: 600, margin: 0 }}>Invalid link</p>
-          <p style={{ color: '#888', fontSize: 14, marginTop: 8 }}>This ticket link is missing required info.</p>
+          <p style={{ color: '#fff', fontSize: 18, fontWeight: 600, margin: 0 }}>Neplatný odkaz</p>
+          <p style={{ color: '#888', fontSize: 14, marginTop: 8 }}>Tento odkaz na lístok chýba potrebné informácie.</p>
         </>
       )}
 
@@ -69,9 +65,9 @@ function WalletLoader() {
               <path d="M24 4a20 20 0 0 1 20 20" stroke="#C9FF47" strokeWidth={4} strokeLinecap="round" />
             </svg>
           </div>
-          <p style={{ color: '#fff', fontSize: 18, fontWeight: 600, margin: 0 }}>Preparing your ticket...</p>
+          <p style={{ color: '#fff', fontSize: 18, fontWeight: 600, margin: 0 }}>Pripravujeme tvoj lístok...</p>
           <p style={{ color: '#888', fontSize: 14, marginTop: 8, textAlign: 'center', maxWidth: 260 }}>
-            Your Apple Wallet pass is being generated.
+            Generujeme tvoj Apple Wallet lístok.
           </p>
         </>
       )}
@@ -84,9 +80,9 @@ function WalletLoader() {
               <path d="M24 4a20 20 0 0 1 20 20" stroke="#C9FF47" strokeWidth={4} strokeLinecap="round" />
             </svg>
           </div>
-          <p style={{ color: '#fff', fontSize: 18, fontWeight: 600, margin: 0 }}>Opening Apple Wallet...</p>
+          <p style={{ color: '#fff', fontSize: 18, fontWeight: 600, margin: 0 }}>Otvárame Apple Wallet...</p>
           <p style={{ color: '#888', fontSize: 14, marginTop: 8, textAlign: 'center', maxWidth: 260 }}>
-            Tap <strong style={{ color: '#fff' }}>Add</strong> when the prompt appears.
+            Klikni <strong style={{ color: '#fff' }}>Pridať</strong> keď sa zobrazí výzva.
           </p>
         </>
       )}
@@ -101,11 +97,10 @@ function WalletLoader() {
               <path d="M5 13l4 4L19 7" stroke="#0f0f0f" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </div>
-          <p style={{ color: '#fff', fontSize: 18, fontWeight: 600, margin: 0 }}>Ticket added to Wallet</p>
+          <p style={{ color: '#fff', fontSize: 18, fontWeight: 600, margin: 0 }}>Lístok pridaný do Peňaženky</p>
           <p style={{ color: '#888', fontSize: 14, marginTop: 8, marginBottom: 32, textAlign: 'center', maxWidth: 260 }}>
-            Find it in your Apple Wallet app anytime.
+            Nájdeš ho v Apple Peňaženke kedykoľvek.
           </p>
-          {/* Deep link back to the app */}
           <a
             href="woeva://"
             style={{
@@ -114,7 +109,7 @@ function WalletLoader() {
               textDecoration: 'none', display: 'inline-block',
             }}
           >
-            Return to Woeva
+            Späť do Woeva
           </a>
         </>
       )}
