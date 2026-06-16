@@ -83,14 +83,13 @@ export async function GET(req: NextRequest) {
     backgroundColor: 'rgb(18, 18, 18)',
     labelColor: 'rgb(160, 160, 160)',
     eventTicket: {
-      // Empty primaryFields → strip photo shows clean with no text overlay
       primaryFields: [],
-      // Single secondaryField → renders full-width below the strip, event title prominent
+      // Date + time on one row
       secondaryFields: [
-        { key: 'event', label: '', value: event.title, textAlignment: 'PKTextAlignmentLeft' },
-      ],
-      auxiliaryFields: [
         ...(dateTimeValue ? [{ key: 'datetime', label: 'DÁTUM A ČAS', value: dateTimeValue, textAlignment: 'PKTextAlignmentLeft' }] : []),
+      ],
+      // Venue below
+      auxiliaryFields: [
         ...(locationValue ? [{ key: 'location', label: 'MIESTO', value: locationValue, textAlignment: 'PKTextAlignmentLeft' }] : []),
       ],
       backFields: [
