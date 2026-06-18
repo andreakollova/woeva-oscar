@@ -5,26 +5,46 @@ import { useState, useEffect, useRef } from 'react';
 type QueueItem = {
   id: string;
   photo_url: string;
-  type: 'lifestyle' | 'animation';
+  type: 'lifestyle' | 'animation' | 'event' | 'reel';
   status: 'pending' | 'processing' | 'sent' | 'posted' | 'failed';
   position: number;
   caption: string | null;
   created_at: string;
 };
 
+type UploadTab = 'lifestyle' | 'animation' | 'event' | 'reel';
+
+const TYPE_META = {
+  lifestyle: { label: 'Lifestyle', emoji: '🖼', badgeBg: '#C8FF00', badgeColor: '#111' },
+  animation: { label: 'Animacia', emoji: '🎬', badgeBg: '#1a1a1a', badgeColor: '#C8FF00' },
+  event:     { label: 'Event',    emoji: '📸', badgeBg: '#818cf8', badgeColor: '#fff' },
+  reel:      { label: 'Reel',     emoji: '🎞', badgeBg: '#f472b6', badgeColor: '#fff' },
+} as const;
+
+function formatSlot(daysOffset: number, time: string): string {
+  if (daysOffset === 0) return `Dnes · ${time}`;
+  if (daysOffset === 1) return `Zajtra · ${time}`;
+  const d = new Date();
+  d.setDate(d.getDate() + daysOffset);
+  return d.toLocaleDateString('sk-SK', { weekday: 'short', day: 'numeric', month: 'numeric' }) + ` · ${time}`;
+}
+
 export default function Home() {
   const [password, setPassword] = useState('');
   const [authed, setAuthed] = useState(false);
   const [error, setError] = useState('');
   const [queue, setQueue] = useState<QueueItem[]>([]);
-  const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadingAnim, setLoadingAnim] = useState(false);
-  const [dragOver, setDragOver] = useState(false);
-  const [tab, setTab] = useState<'lifestyle' | 'animation'>('lifestyle');
+  const [fileUploading, setFileUploading] = useState(false);
+  const [dragOverFile, setDragOverFile] = useState(false);
+  const [tab, setTab] = useState<UploadTab>('lifestyle');
   const [captionText, setCaptionText] = useState('');
   const [savingCaptions, setSavingCaptions] = useState(false);
   const [captionCounts, setCaptionCounts] = useState({ lifestyle: 0, animation: 0 });
+  const [reelCaption, setReelCaption] = useState('');
+  const [planDragId, setPlanDragId] = useState<string | null>(null);
+  const [planDragOverId, setPlanDragOverId] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function loadQueue() {
@@ -38,10 +58,7 @@ export default function Home() {
   }
 
   useEffect(() => {
-    if (authed) {
-      loadQueue();
-      loadCaptionCounts();
-    }
+    if (authed) { loadQueue(); loadCaptionCounts(); }
   }, [authed]);
 
   function checkPassword(e: React.FormEvent) {
@@ -51,17 +68,32 @@ export default function Home() {
   }
 
   async function handleFiles(files: FileList) {
-    setUploading(true);
-    for (const file of Array.from(files)) {
+    setFileUploading(true);
+    setError('');
+
+    if (tab === 'event') {
       const fd = new FormData();
-      fd.append('file', file);
-      await fetch('/api/upload', {
-        method: 'POST',
-        headers: { 'x-password': password },
-        body: fd,
-      });
+      fd.append('file', files[0]);
+      const res = await fetch('/api/upload-event', { method: 'POST', headers: { 'x-password': password }, body: fd });
+      const data = await res.json();
+      if (!res.ok) setError(data.error || 'Chyba');
+    } else if (tab === 'reel') {
+      const fd = new FormData();
+      fd.append('file', files[0]);
+      fd.append('caption', reelCaption);
+      const res = await fetch('/api/upload-reel', { method: 'POST', headers: { 'x-password': password }, body: fd });
+      const data = await res.json();
+      if (!res.ok) setError(data.error || 'Chyba');
+      else setReelCaption('');
+    } else {
+      for (const file of Array.from(files)) {
+        const fd = new FormData();
+        fd.append('file', file);
+        await fetch('/api/upload', { method: 'POST', headers: { 'x-password': password }, body: fd });
+      }
     }
-    setUploading(false);
+
+    setFileUploading(false);
     loadQueue();
     if (fileRef.current) fileRef.current.value = '';
   }
@@ -69,58 +101,99 @@ export default function Home() {
   async function saveCaptions() {
     if (!captionText.trim()) return;
     setSavingCaptions(true);
-    const captions = captionText.split('---').map(c => c.trim()).filter(c => c.length > 0);
+    const captions = captionText.split('---').map(c => c.trim()).filter(Boolean);
     const res = await fetch('/api/upload-caption', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-password': password },
-      body: JSON.stringify({ captions, type: tab }),
+      body: JSON.stringify({ captions, type: tab === 'animation' ? 'animation' : 'lifestyle' }),
     });
     const data = await res.json();
     setSavingCaptions(false);
-    if (res.ok) {
-      setCaptionText('');
-      loadCaptionCounts();
-    } else {
-      setError(data.error || 'Chyba pri ukladani popisov');
-    }
+    if (res.ok) { setCaptionText(''); loadCaptionCounts(); }
+    else setError(data.error || 'Chyba');
   }
 
   async function deleteItem(id: string) {
-    await fetch(`/api/queue/${id}`, {
-      method: 'DELETE',
-      headers: { 'x-password': password },
-    });
-    loadQueue();
-  }
-
-  async function moveItem(id: string, dir: 'up' | 'down') {
-    const filtered = queue.filter(q => q.type === tab && q.status === 'pending');
-    const idx = filtered.findIndex(q => q.id === id);
-    if (dir === 'up' && idx === 0) return;
-    if (dir === 'down' && idx === filtered.length - 1) return;
-    const swapIdx = dir === 'up' ? idx - 1 : idx + 1;
-    const swapItem = filtered[swapIdx];
-    await Promise.all([
-      fetch(`/api/queue/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'x-password': password }, body: JSON.stringify({ position: swapItem.position }) }),
-      fetch(`/api/queue/${swapItem.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'x-password': password }, body: JSON.stringify({ position: filtered[idx].position }) }),
-    ]);
+    await fetch(`/api/queue/${id}`, { method: 'DELETE', headers: { 'x-password': password } });
     loadQueue();
   }
 
   async function triggerNow() {
-    const endpoint = tab === 'lifestyle' ? '/api/cron' : '/api/cron-animation';
-    const setter = tab === 'lifestyle' ? setLoading : setLoadingAnim;
+    const isAnim = tab === 'animation';
+    const setter = isAnim ? setLoadingAnim : setLoading;
     setter(true);
-    const res = await fetch(endpoint, { method: 'POST', headers: { 'x-password': password } });
+    const res = await fetch(isAnim ? '/api/cron-animation' : '/api/cron', {
+      method: 'POST', headers: { 'x-password': password },
+    });
     const data = await res.json();
     setter(false);
     if (!res.ok) setError(data.error || 'Chyba');
     else { setError(''); loadQueue(); loadCaptionCounts(); }
   }
 
-  const pending = queue.filter(q => q.status === 'pending' && q.type === tab);
-  const sent = queue.filter(q => q.status !== 'pending' && q.type === tab);
-  const captionCount = captionCounts[tab];
+  async function handlePlanDrop(targetId: string) {
+    if (!planDragId || planDragId === targetId) { setPlanDragId(null); setPlanDragOverId(null); return; }
+    const dragged = queue.find(q => q.id === planDragId);
+    const target = queue.find(q => q.id === targetId);
+    if (!dragged || !target || dragged.type !== target.type) { setPlanDragId(null); setPlanDragOverId(null); return; }
+
+    const typeItems = queue
+      .filter(q => q.type === dragged.type && q.status === 'pending')
+      .sort((a, b) => a.position - b.position);
+
+    const fromIdx = typeItems.findIndex(q => q.id === planDragId);
+    const toIdx = typeItems.findIndex(q => q.id === targetId);
+    if (fromIdx === -1 || toIdx === -1) { setPlanDragId(null); setPlanDragOverId(null); return; }
+
+    const reordered = [...typeItems];
+    reordered.splice(fromIdx, 1);
+    reordered.splice(toIdx, 0, typeItems[fromIdx]);
+
+    setPlanDragId(null);
+    setPlanDragOverId(null);
+
+    await Promise.all(
+      reordered.map((item, idx) =>
+        fetch(`/api/queue/${item.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', 'x-password': password },
+          body: JSON.stringify({ position: idx }),
+        })
+      )
+    );
+    loadQueue();
+  }
+
+  // Compute plan items (pending lifestyle + animation interleaved by expected time)
+  const now = new Date();
+  const utcH = now.getUTCHours();
+  const utcM = now.getUTCMinutes();
+  const lifestyleRanToday = utcH > 7 || (utcH === 7 && utcM >= 15);
+  const animationRanToday = utcH >= 13;
+
+  const lifestylePending = queue
+    .filter(q => q.type === 'lifestyle' && q.status === 'pending')
+    .sort((a, b) => a.position - b.position)
+    .map((item, idx) => {
+      const d = lifestyleRanToday ? idx + 1 : idx;
+      return { item, slot: formatSlot(d, '9:15'), sortKey: d * 2 };
+    });
+
+  const animationPending = queue
+    .filter(q => q.type === 'animation' && q.status === 'pending')
+    .sort((a, b) => a.position - b.position)
+    .map((item, idx) => {
+      const d = animationRanToday ? idx + 1 : idx;
+      return { item, slot: formatSlot(d, '15:00'), sortKey: d * 2 + 1 };
+    });
+
+  const planItems = [...lifestylePending, ...animationPending].sort((a, b) => a.sortKey - b.sortKey);
+  const discordItems = queue
+    .filter(q => q.status === 'sent')
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+  const pendingForTab = queue.filter(q => q.type === tab && q.status === 'pending').sort((a, b) => a.position - b.position);
+  const captionCount = tab === 'animation' ? captionCounts.animation : captionCounts.lifestyle;
 
   if (!authed) {
     return (
@@ -135,26 +208,16 @@ export default function Home() {
           </div>
           <form onSubmit={checkPassword} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             <input
-              type="password"
-              placeholder="Heslo"
-              value={password}
+              type="password" placeholder="Heslo" value={password}
               onChange={e => { setPassword(e.target.value); setError(''); }}
               autoFocus
-              style={{
-                width: '100%', boxSizing: 'border-box',
-                background: '#fff', border: '1.5px solid #E5E5E5', borderRadius: '14px',
-                padding: '14px 16px', fontSize: '15px', color: '#111',
-                outline: 'none', transition: 'border-color 0.15s',
-              }}
+              style={{ width: '100%', boxSizing: 'border-box', background: '#fff', border: '1.5px solid #E5E5E5', borderRadius: '14px', padding: '14px 16px', fontSize: '15px', color: '#111', outline: 'none' }}
               onFocus={e => e.target.style.borderColor = '#C8FF00'}
               onBlur={e => e.target.style.borderColor = '#E5E5E5'}
             />
             {error && <p style={{ color: '#ef4444', fontSize: '13px', margin: '0 4px' }}>{error}</p>}
-            <button type="submit" style={{
-              background: '#111', color: '#fff', border: 'none', borderRadius: '14px',
-              padding: '14px', fontSize: '15px', fontWeight: 700, cursor: 'pointer',
-            }}>
-              Vstúpiť
+            <button type="submit" style={{ background: '#111', color: '#fff', border: 'none', borderRadius: '14px', padding: '14px', fontSize: '15px', fontWeight: 700, cursor: 'pointer' }}>
+              Vstúpit
             </button>
           </form>
         </div>
@@ -167,7 +230,7 @@ export default function Home() {
       <div style={{ width: '100%', maxWidth: '520px', margin: '0 auto', padding: '0 16px' }}>
 
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '24px 0 16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '24px 0 20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <div style={{ width: '42px', height: '42px', borderRadius: '13px', background: '#C8FF00', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 2px 8px rgba(200,255,0,0.25)' }}>
               <span style={{ fontSize: '18px', fontWeight: 900, color: '#000' }}>O</span>
@@ -175,40 +238,14 @@ export default function Home() {
             <div>
               <div style={{ fontSize: '17px', fontWeight: 700, color: '#111', lineHeight: 1.2 }}>Woeva Oscar</div>
               <div style={{ fontSize: '12px', color: '#999', marginTop: '1px' }}>
-                {pending.length === 0 ? 'Front je prázdny' : `${pending.length} v rade`}
-                {captionCount > 0 && ` · ${captionCount} popisov`}
+                {planItems.length === 0 ? 'Plán je prázdny' : `${planItems.length} naplánovaných`}
+                {discordItems.length > 0 && ` · ${discordItems.length} v Discorde`}
               </div>
             </div>
           </div>
-          <button
-            onClick={triggerNow}
-            disabled={(tab === 'lifestyle' ? loading : loadingAnim) || pending.length === 0}
-            style={{
-              padding: '9px 16px', borderRadius: '12px', fontSize: '13px', fontWeight: 600,
-              border: '1.5px solid #E5E5E5', background: '#fff', color: '#555',
-              cursor: pending.length === 0 ? 'not-allowed' : 'pointer',
-              opacity: pending.length === 0 ? 0.4 : 1, transition: 'all 0.15s',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {(tab === 'lifestyle' ? loading : loadingAnim) ? 'Posielam...' : '▶ Spusti'}
+          <button onClick={loadQueue} style={{ width: '34px', height: '34px', border: '1.5px solid #E5E5E5', background: '#fff', borderRadius: '10px', cursor: 'pointer', fontSize: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888' }}>
+            ↻
           </button>
-        </div>
-
-        {/* Tabs */}
-        <div style={{ display: 'flex', gap: '6px', marginBottom: '20px', background: '#EFEFEF', borderRadius: '12px', padding: '4px' }}>
-          {(['lifestyle', 'animation'] as const).map(t => (
-            <button key={t} onClick={() => { setTab(t); if (fileRef.current) fileRef.current.value = ''; setCaptionText(''); }}
-              style={{
-                flex: 1, padding: '8px', borderRadius: '9px', border: 'none', cursor: 'pointer',
-                fontSize: '13px', fontWeight: 600, transition: 'all 0.15s',
-                background: tab === t ? '#fff' : 'transparent',
-                color: tab === t ? '#111' : '#888',
-                boxShadow: tab === t ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
-              }}>
-              {t === 'lifestyle' ? '🖼 Lifestyle · 9:15' : '🎬 Animácia · 15:00'}
-            </button>
-          ))}
         </div>
 
         {error && (
@@ -217,64 +254,115 @@ export default function Home() {
           </div>
         )}
 
-        {/* Media upload area */}
-        <label
-          style={{ display: 'block', cursor: 'pointer', marginBottom: '12px' }}
-          onDragOver={e => { e.preventDefault(); setDragOver(true); }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={e => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files); }}
-        >
-          <input ref={fileRef} type="file" accept={tab === 'animation' ? 'video/*' : 'image/*'} multiple style={{ display: 'none' }}
-            onChange={e => { if (e.target.files?.length) handleFiles(e.target.files); }} />
-          <div style={{
-            background: dragOver ? '#f0fff0' : '#fff',
-            border: `2px dashed ${dragOver ? '#C8FF00' : '#E5E5E5'}`,
-            borderRadius: '18px', padding: '28px 20px',
-            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px',
-            transition: 'all 0.15s',
-          }}>
-            <div style={{ width: '44px', height: '44px', borderRadius: '14px', background: '#F7F7F5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px' }}>
-              {tab === 'animation' ? '🎬' : '📷'}
-            </div>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: '14px', fontWeight: 600, color: '#333' }}>
-                {uploading ? 'Nahrávam...' : tab === 'animation' ? 'Nahraj videá' : 'Nahraj fotky'}
-              </div>
-              <div style={{ fontSize: '12px', color: '#aaa', marginTop: '2px' }}>
-                Môžeš vybrať viac naraz alebo pretiahnuť sem
-              </div>
-            </div>
-          </div>
-        </label>
+        {/* Content Plan */}
+        {planItems.length > 0 && (
+          <section style={{ marginBottom: '24px' }}>
+            <SectionLabel text={`Plan · ${planItems.length}`} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {planItems.map(({ item, slot }) => {
+                const draggedItem = planDragId ? queue.find(q => q.id === planDragId) : null;
+                const canDrop = !draggedItem || draggedItem.type === item.type;
+                const isDragOver = planDragOverId === item.id && canDrop;
+                return (
+                  <div
+                    key={item.id}
+                    draggable
+                    onDragStart={() => setPlanDragId(item.id)}
+                    onDragOver={e => { e.preventDefault(); if (canDrop) setPlanDragOverId(item.id); }}
+                    onDragLeave={() => setPlanDragOverId(null)}
+                    onDrop={() => handlePlanDrop(item.id)}
+                    onDragEnd={() => { setPlanDragId(null); setPlanDragOverId(null); }}
+                    style={{
+                      background: '#fff',
+                      border: `1.5px solid ${isDragOver ? '#C8FF00' : planDragId === item.id ? '#ddd' : '#EFEFEF'}`,
+                      borderRadius: '14px', padding: '10px 12px',
+                      display: 'flex', alignItems: 'center', gap: '10px',
+                      opacity: planDragId === item.id ? 0.4 : 1,
+                      cursor: 'grab', transition: 'all 0.1s',
+                      boxShadow: isDragOver ? '0 2px 12px rgba(200,255,0,0.2)' : '0 1px 3px rgba(0,0,0,0.04)',
+                    }}
+                  >
+                    {/* Drag handle */}
+                    <span style={{ fontSize: '14px', color: '#ccc', userSelect: 'none', flexShrink: 0 }}>⠿</span>
 
-        {/* Caption upload area */}
-        <div style={{ marginBottom: '28px' }}>
-          <div style={{ background: '#fff', border: '1.5px solid #EFEFEF', borderRadius: '18px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ fontSize: '13px', fontWeight: 600, color: '#333' }}>
-                ✏️ Popisy {captionCount > 0 && <span style={{ background: '#C8FF00', color: '#111', borderRadius: '6px', padding: '1px 7px', fontSize: '11px', fontWeight: 700, marginLeft: '6px' }}>{captionCount} voľných</span>}
-              </div>
-              <button
-                onClick={saveCaptions}
-                disabled={savingCaptions || !captionText.trim()}
-                style={{
-                  fontSize: '12px', fontWeight: 700, padding: '5px 14px', borderRadius: '8px',
-                  border: 'none', background: captionText.trim() ? '#111' : '#E5E5E5',
-                  color: captionText.trim() ? '#fff' : '#aaa',
-                  cursor: captionText.trim() ? 'pointer' : 'not-allowed', transition: 'all 0.15s',
-                }}
-              >
-                {savingCaptions ? 'Ukladám...' : 'Uložiť'}
-              </button>
+                    {/* Thumbnail */}
+                    <div style={{ width: '40px', height: '40px', borderRadius: '9px', overflow: 'hidden', flexShrink: 0, background: '#F0F0F0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      {item.type === 'animation' ? (
+                        <span style={{ fontSize: '18px' }}>🎬</span>
+                      ) : (
+                        <img src={item.photo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+                      )}
+                    </div>
+
+                    {/* Info */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
+                        <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 7px', borderRadius: '5px', background: TYPE_META[item.type].badgeBg, color: TYPE_META[item.type].badgeColor, flexShrink: 0 }}>
+                          {TYPE_META[item.type].label}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '12px', color: '#555', fontWeight: 500 }}>{slot}</div>
+                    </div>
+
+                    {/* Delete */}
+                    <button onClick={() => deleteItem(item.id)} style={{ width: '28px', height: '28px', border: 'none', background: 'none', cursor: 'pointer', color: '#ddd', fontSize: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '7px', transition: 'color 0.15s', flexShrink: 0 }}
+                      onMouseEnter={e => (e.currentTarget.style.color = '#ef4444')}
+                      onMouseLeave={e => (e.currentTarget.style.color = '#ddd')}
+                    >✕</button>
+                  </div>
+                );
+              })}
             </div>
-            <textarea
-              value={captionText}
-              onChange={e => setCaptionText(e.target.value)}
-              placeholder={`Vlož popisy pre ${tab === 'lifestyle' ? 'fotky' : 'videá'} — oddeľ ich pomocou ---\n\nNapr.:\nNiekedy ani nejde o ten event.\nIde o ten pocit... ✨\n\nDownloadni si Woeva.\nApp Store & Google Play.\n---\nVäčšina dobrých spomienok\nzačína vetou: „Tak poďme." 🌙\n\nDownloadni si Woeva.\nApp Store & Google Play.`}
-              rows={6}
+          </section>
+        )}
+
+        {/* Discord queue */}
+        {discordItems.length > 0 && (
+          <section style={{ marginBottom: '24px' }}>
+            <SectionLabel text={`V Discorde · ${discordItems.length}`} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {discordItems.map(item => (
+                <DiscordRow
+                  key={item.id} item={item} password={password}
+                  onDelete={() => deleteItem(item.id)}
+                  onRefresh={() => { loadQueue(); loadCaptionCounts(); }}
+                />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Divider */}
+        <div style={{ height: '1px', background: '#EBEBEB', marginBottom: '20px' }} />
+
+        {/* Upload Tabs */}
+        <div style={{ background: '#EFEFEF', borderRadius: '12px', padding: '4px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '3px', marginBottom: '16px' }}>
+          {(['lifestyle', 'animation', 'event', 'reel'] as UploadTab[]).map(t => (
+            <button key={t} onClick={() => { setTab(t); setCaptionText(''); setReelCaption(''); if (fileRef.current) fileRef.current.value = ''; }}
               style={{
-                width: '100%', boxSizing: 'border-box',
-                border: '1.5px solid #F0F0F0', borderRadius: '12px',
+                padding: '7px 4px', borderRadius: '9px', border: 'none', cursor: 'pointer',
+                fontSize: '11px', fontWeight: 600, transition: 'all 0.15s',
+                background: tab === t ? '#fff' : 'transparent',
+                color: tab === t ? '#111' : '#888',
+                boxShadow: tab === t ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
+                whiteSpace: 'nowrap',
+              }}>
+              {TYPE_META[t].emoji} {t === 'lifestyle' ? 'Lifestyle' : t === 'animation' ? 'Animacia' : t === 'event' ? 'Event' : 'Reel'}
+            </button>
+          ))}
+        </div>
+
+        {/* Reel caption input */}
+        {tab === 'reel' && (
+          <div style={{ marginBottom: '12px', background: '#fff', border: '1.5px solid #EFEFEF', borderRadius: '18px', padding: '16px' }}>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: '#333', marginBottom: '8px' }}>✏️ Popis reelu</div>
+            <textarea
+              value={reelCaption}
+              onChange={e => setReelCaption(e.target.value)}
+              placeholder="Napíš popis reelu..."
+              rows={4}
+              style={{
+                width: '100%', boxSizing: 'border-box', border: '1.5px solid #F0F0F0', borderRadius: '12px',
                 padding: '12px', fontSize: '13px', color: '#333', lineHeight: 1.5,
                 resize: 'vertical', outline: 'none', background: '#FAFAFA',
                 fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
@@ -282,164 +370,177 @@ export default function Home() {
               onFocus={e => e.target.style.borderColor = '#C8FF00'}
               onBlur={e => e.target.style.borderColor = '#F0F0F0'}
             />
-            <div style={{ fontSize: '11px', color: '#bbb' }}>
-              Každý popis oddeľ pomocou <strong>---</strong> na novom riadku
-            </div>
-          </div>
-        </div>
-
-        {/* Pending queue */}
-        {pending.length > 0 && (
-          <div style={{ marginBottom: '28px' }}>
-            <div style={{ fontSize: '11px', fontWeight: 700, color: '#aaa', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '10px', paddingLeft: '2px' }}>
-              Front · {pending.length}
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {pending.map((item, idx) => (
-                <QueueRow key={item.id} item={item} idx={idx} total={pending.length}
-                  onDelete={() => deleteItem(item.id)}
-                  onMove={dir => moveItem(item.id, dir)}
-                  isNext={idx === 0}
-                />
-              ))}
-            </div>
           </div>
         )}
 
-        {/* Sent/posted */}
-        {sent.length > 0 && (
-          <div>
-            <div style={{ fontSize: '11px', fontWeight: 700, color: '#aaa', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '10px', paddingLeft: '2px' }}>
-              Odoslané · {sent.length}
+        {/* File upload area */}
+        <label
+          style={{ display: 'block', cursor: 'pointer', marginBottom: '12px' }}
+          onDragOver={e => { e.preventDefault(); setDragOverFile(true); }}
+          onDragLeave={() => setDragOverFile(false)}
+          onDrop={e => { e.preventDefault(); setDragOverFile(false); if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files); }}
+        >
+          <input ref={fileRef} type="file"
+            accept={tab === 'animation' || tab === 'reel' ? 'video/*' : 'image/*'}
+            multiple={tab === 'lifestyle' || tab === 'animation'}
+            style={{ display: 'none' }}
+            onChange={e => { if (e.target.files?.length) handleFiles(e.target.files); }}
+          />
+          <div style={{
+            background: dragOverFile ? '#f0fff0' : '#fff',
+            border: `2px dashed ${dragOverFile ? '#C8FF00' : '#E5E5E5'}`,
+            borderRadius: '18px', padding: '28px 20px',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px',
+            transition: 'all 0.15s',
+          }}>
+            <div style={{ width: '44px', height: '44px', borderRadius: '14px', background: '#F7F7F5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '22px' }}>
+              {tab === 'animation' || tab === 'reel' ? '🎬' : tab === 'event' ? '📸' : '🖼'}
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {sent.map((item, idx) => (
-                <QueueRow key={item.id} item={item} idx={idx} total={sent.length}
-                  onDelete={() => deleteItem(item.id)}
-                  onMove={() => {}} isNext={false} readOnly
-                  password={password} onCaptionRegenerated={() => { loadQueue(); loadCaptionCounts(); }}
-                />
-              ))}
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: '14px', fontWeight: 600, color: '#333' }}>
+                {fileUploading
+                  ? (tab === 'event' ? 'Generujem popis...' : 'Nahravam...')
+                  : tab === 'lifestyle' ? 'Nahraj fotky'
+                  : tab === 'animation' ? 'Nahraj videa'
+                  : tab === 'event' ? 'Nahraj screenshot eventu'
+                  : 'Nahraj video reelu'}
+              </div>
+              <div style={{ fontSize: '12px', color: '#aaa', marginTop: '3px' }}>
+                {tab === 'event'
+                  ? 'AI vygeneruje popis a posle do Discordu'
+                  : tab === 'reel'
+                  ? 'Posle sa do Discordu s tvojim popisom'
+                  : 'Môzes vybrat viac naraz alebo pretiahnút sem'}
+              </div>
             </div>
+          </div>
+        </label>
+
+        {/* Caption pool (lifestyle / animation) */}
+        {(tab === 'lifestyle' || tab === 'animation') && (
+          <div style={{ marginBottom: '16px', background: '#fff', border: '1.5px solid #EFEFEF', borderRadius: '18px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: '#333' }}>
+                ✏️ Popisy {captionCount > 0 && <span style={{ background: '#C8FF00', color: '#111', borderRadius: '6px', padding: '1px 7px', fontSize: '11px', fontWeight: 700, marginLeft: '6px' }}>{captionCount} volnych</span>}
+              </div>
+              <button onClick={saveCaptions} disabled={savingCaptions || !captionText.trim()} style={{
+                fontSize: '12px', fontWeight: 700, padding: '5px 14px', borderRadius: '8px', border: 'none',
+                background: captionText.trim() ? '#111' : '#E5E5E5',
+                color: captionText.trim() ? '#fff' : '#aaa',
+                cursor: captionText.trim() ? 'pointer' : 'not-allowed',
+              }}>
+                {savingCaptions ? 'Ukladam...' : 'Ulozit'}
+              </button>
+            </div>
+            <textarea
+              value={captionText} onChange={e => setCaptionText(e.target.value)}
+              placeholder={`Vloz popisy — oddel pomocou ---`}
+              rows={5}
+              style={{
+                width: '100%', boxSizing: 'border-box', border: '1.5px solid #F0F0F0', borderRadius: '12px',
+                padding: '12px', fontSize: '13px', color: '#333', lineHeight: 1.5,
+                resize: 'vertical', outline: 'none', background: '#FAFAFA',
+                fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+              }}
+              onFocus={e => e.target.style.borderColor = '#C8FF00'}
+              onBlur={e => e.target.style.borderColor = '#F0F0F0'}
+            />
+            <div style={{ fontSize: '11px', color: '#bbb' }}>Kazdy popis oddel pomocou <strong>---</strong> na novom riadku</div>
           </div>
         )}
 
-        {queue.length === 0 && !uploading && (
-          <div style={{ textAlign: 'center', color: '#bbb', fontSize: '14px', marginTop: '40px' }}>
-            Nahraj prvé fotky a popisy — Oscar sa postará o zvyšok
-          </div>
+        {/* Trigger button (lifestyle / animation) */}
+        {(tab === 'lifestyle' || tab === 'animation') && (
+          <button
+            onClick={triggerNow}
+            disabled={(tab === 'animation' ? loadingAnim : loading) || pendingForTab.length === 0}
+            style={{
+              width: '100%', padding: '13px', borderRadius: '14px', fontSize: '14px', fontWeight: 700,
+              border: '1.5px solid #E5E5E5', background: '#fff', color: '#555', cursor: pendingForTab.length === 0 ? 'not-allowed' : 'pointer',
+              opacity: pendingForTab.length === 0 ? 0.4 : 1, marginBottom: '28px',
+            }}
+          >
+            {(tab === 'animation' ? loadingAnim : loading) ? 'Posielam...' : `▶ Spusti ${tab === 'animation' ? 'Animaciu' : 'Lifestyle'} teraz`}
+          </button>
         )}
       </div>
     </main>
   );
 }
 
-function QueueRow({ item, idx, total, onDelete, onMove, isNext, readOnly, password, onCaptionRegenerated }: {
-  item: QueueItem; idx: number; total: number;
+function SectionLabel({ text }: { text: string }) {
+  return (
+    <div style={{ fontSize: '11px', fontWeight: 700, color: '#aaa', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '10px', paddingLeft: '2px' }}>
+      {text}
+    </div>
+  );
+}
+
+function DiscordRow({ item, password, onDelete, onRefresh }: {
+  item: QueueItem;
+  password: string;
   onDelete: () => void;
-  onMove: (dir: 'up' | 'down') => void;
-  isNext: boolean; readOnly?: boolean;
-  password?: string; onCaptionRegenerated?: () => void;
+  onRefresh: () => void;
 }) {
-  const [regenCaption, setRegenCaption] = useState(false);
-  const statusConfig = {
-    pending: { label: isNext ? 'Ďalšia' : 'Čaká', color: isNext ? '#111' : '#999', bg: isNext ? '#C8FF00' : '#F0F0F0' },
-    processing: { label: 'Spracováva...', color: '#111', bg: '#C8FF00' },
-    sent: { label: 'V Discorde', color: '#555', bg: '#F0F0F0' },
-    posted: { label: 'Postnuté', color: '#16a34a', bg: '#dcfce7' },
-    failed: { label: 'Chyba', color: '#dc2626', bg: '#fee2e2' },
-  }[item.status];
+  const [regenning, setRegenning] = useState(false);
+  const meta = TYPE_META[item.type];
+  const isVideo = item.type === 'animation' || item.type === 'reel';
+
+  async function regenCaption() {
+    setRegenning(true);
+    await fetch('/api/regenerate-caption', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-password': password },
+      body: JSON.stringify({ itemId: item.id }),
+    });
+    setRegenning(false);
+    onRefresh();
+  }
 
   return (
     <div style={{
-      background: '#fff',
-      border: `1.5px solid ${isNext ? '#C8FF00' : '#EFEFEF'}`,
-      borderRadius: '16px', padding: '12px',
-      display: 'flex', alignItems: 'center', gap: '12px',
-      boxShadow: isNext ? '0 2px 12px rgba(200,255,0,0.15)' : '0 1px 3px rgba(0,0,0,0.04)',
-      transition: 'all 0.15s',
+      background: '#fff', border: '1.5px solid #EFEFEF', borderRadius: '14px', padding: '10px 12px',
+      display: 'flex', alignItems: 'center', gap: '10px',
+      boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
     }}>
       {/* Thumbnail */}
-      <div style={{ width: '52px', height: '52px', borderRadius: '12px', overflow: 'hidden', flexShrink: 0, background: '#F0F0F0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        {item.type === 'animation' ? (
-          <span style={{ fontSize: '22px' }}>🎬</span>
+      <div style={{ width: '40px', height: '40px', borderRadius: '9px', overflow: 'hidden', flexShrink: 0, background: '#F0F0F0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        {isVideo ? (
+          <span style={{ fontSize: '18px' }}>{meta.emoji}</span>
         ) : (
-          <img
-            src={item.photo_url}
-            alt=""
-            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-            onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
-          />
+          <img src={item.photo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
         )}
       </div>
 
       {/* Info */}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-          <span style={{
-            fontSize: '11px', fontWeight: 700, padding: '2px 8px', borderRadius: '6px',
-            color: statusConfig?.color, background: statusConfig?.bg,
-          }}>
-            {statusConfig?.label}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' }}>
+          <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 7px', borderRadius: '5px', background: meta.badgeBg, color: meta.badgeColor, flexShrink: 0 }}>
+            {meta.label}
           </span>
-          <span style={{ fontSize: '11px', color: '#ccc', fontFamily: 'monospace' }}>#{idx + 1}</span>
+          <span style={{ fontSize: '10px', fontWeight: 600, padding: '2px 7px', borderRadius: '5px', background: '#F0F0F0', color: '#555' }}>
+            Discord
+          </span>
         </div>
-        {readOnly ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-            {item.caption && (
-              <span style={{ fontSize: '11px', color: '#bbb', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {item.caption.replace(/\n/g, ' ')}
-              </span>
-            )}
-            <button
-              disabled={regenCaption}
-              onClick={async () => {
-                setRegenCaption(true);
-                await fetch('/api/regenerate-caption', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json', 'x-password': password || '' },
-                  body: JSON.stringify({ itemId: item.id }),
-                });
-                setRegenCaption(false);
-                onCaptionRegenerated?.();
-              }}
-              style={{
-                fontSize: '11px', padding: '2px 8px', borderRadius: '6px', cursor: 'pointer',
-                border: '1.5px solid #E5E5E5', background: '#fff', color: '#888',
-                opacity: regenCaption ? 0.5 : 1,
-              }}
-            >
-              {regenCaption ? '...' : '↺ Popis'}
-            </button>
-          </div>
-        ) : (
-          <div style={{ fontSize: '12px', color: '#ccc' }}>
-            {item.type === 'lifestyle' ? 'Fotka' : 'Video'} · čaká na odoslanie
+        {item.caption && (
+          <div style={{ fontSize: '11px', color: '#aaa', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '220px' }}>
+            {item.caption.replace(/\n/g, ' ')}
           </div>
         )}
       </div>
 
       {/* Actions */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '2px', flexShrink: 0 }}>
-        {!readOnly && (
-          <>
-            <button onClick={() => onMove('up')} disabled={idx === 0} style={{
-              width: '30px', height: '30px', border: 'none', background: 'none', cursor: idx === 0 ? 'not-allowed' : 'pointer',
-              color: '#ccc', fontSize: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              opacity: idx === 0 ? 0.3 : 1, borderRadius: '8px',
-            }}>↑</button>
-            <button onClick={() => onMove('down')} disabled={idx === total - 1} style={{
-              width: '30px', height: '30px', border: 'none', background: 'none', cursor: idx === total - 1 ? 'not-allowed' : 'pointer',
-              color: '#ccc', fontSize: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              opacity: idx === total - 1 ? 0.3 : 1, borderRadius: '8px',
-            }}>↓</button>
-          </>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+        {item.type !== 'reel' && (
+          <button onClick={regenCaption} disabled={regenning} style={{
+            fontSize: '11px', padding: '4px 9px', borderRadius: '7px', cursor: 'pointer',
+            border: '1.5px solid #E5E5E5', background: '#fff', color: '#888',
+            opacity: regenning ? 0.5 : 1,
+          }}>
+            {regenning ? '...' : '↺'}
+          </button>
         )}
-        <button onClick={onDelete} style={{
-          width: '30px', height: '30px', border: 'none', background: 'none', cursor: 'pointer',
-          color: '#ddd', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-          borderRadius: '8px', transition: 'color 0.15s',
-        }}
+        <button onClick={onDelete} style={{ width: '28px', height: '28px', border: 'none', background: 'none', cursor: 'pointer', color: '#ddd', fontSize: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '7px', transition: 'color 0.15s' }}
           onMouseEnter={e => (e.currentTarget.style.color = '#ef4444')}
           onMouseLeave={e => (e.currentTarget.style.color = '#ddd')}
         >✕</button>
