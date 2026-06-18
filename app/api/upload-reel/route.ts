@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
   if (insertError) return NextResponse.json({ error: insertError.message }, { status: 500 });
 
   try {
-    const msgId = await sendToDiscord(item.id, videoUrl, caption, ext);
+    const msgId = await sendToDiscord(item.id, caption);
     await db.from('oscar_queue').update({ discord_message_id: msgId }).eq('id', item.id);
   } catch (e) {
     console.error('Discord send failed:', e);
@@ -53,28 +53,19 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ ok: true });
 }
 
-async function sendToDiscord(itemId: string, videoUrl: string, caption: string, ext: string): Promise<string> {
-  const videoRes = await fetch(videoUrl);
-  const videoBuffer = Buffer.from(await videoRes.arrayBuffer());
-
-  const payload = {
-    content: `**Woeva Oscar** \u{1F39E}\uFE0F \u2014 *reel*\n\n${caption || '(bez popisku)'}`,
-    components: [{
-      type: 1,
-      components: [
-        { type: 2, style: 3, label: '\u{1F39E}\uFE0F Post Reel', custom_id: `oscar_post_reel:${itemId}` },
-      ],
-    }],
-  };
-
-  const form = new FormData();
-  form.append('payload_json', JSON.stringify(payload));
-  form.append('files[0]', new Blob([new Uint8Array(videoBuffer)], { type: `video/${ext}` }), `reel.${ext}`);
-
+async function sendToDiscord(itemId: string, caption: string): Promise<string> {
   const res = await fetch(`https://discord.com/api/v10/channels/${process.env.DISCORD_CHANNEL_ID}/messages`, {
     method: 'POST',
-    headers: { Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}` },
-    body: form,
+    headers: { Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      content: `**Woeva Oscar** \u{1F39E}\uFE0F \u2014 *reel*\n\n${caption ? `${caption}\n\n` : ''}\u23F0 Je \u010Das postnu\u0165 reel \u2014 pozri do gallery spr\u00E1vy`,
+      components: [{
+        type: 1,
+        components: [
+          { type: 2, style: 3, label: '\u{1F39E}\uFE0F Post Reel', custom_id: `oscar_post_reel:${itemId}` },
+        ],
+      }],
+    }),
   });
   if (!res.ok) throw new Error(`Discord: ${await res.text()}`);
   return (await res.json()).id;
