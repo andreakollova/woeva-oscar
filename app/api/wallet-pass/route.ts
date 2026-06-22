@@ -15,8 +15,9 @@ function sha1Hex(data: Buffer): string {
 function formatDate(dateStr: string): string {
   if (!dateStr) return '';
   const d = new Date(dateStr + 'T00:00:00');
-  const raw = d.toLocaleDateString('sk-SK', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-  return raw.charAt(0).toUpperCase() + raw.slice(1);
+  const day = String(d.getDate()).padStart(2, '0');
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  return `${day}.${month}.${d.getFullYear()}`;
 }
 
 export const runtime = 'nodejs';
@@ -67,8 +68,6 @@ export async function GET(req: NextRequest) {
   // Format fields
   const dateValue = event.date ? formatDate(event.date) : '';
   const timeValue = event.time ? event.time.slice(0, 5) : '';
-  const dateTimeValue = [dateValue, timeValue].filter(Boolean).join(' · ');
-  // Location: venue + city
   const locationValue = [event.venue, event.city].filter(Boolean).join(', ');
 
   const passJson = {
@@ -84,13 +83,12 @@ export async function GET(req: NextRequest) {
     labelColor: 'rgb(160, 160, 160)',
     eventTicket: {
       primaryFields: [],
-      // Date + time on one row
       secondaryFields: [
-        ...(dateTimeValue ? [{ key: 'datetime', label: 'DÁTUM A ČAS', value: dateTimeValue, textAlignment: 'PKTextAlignmentLeft' }] : []),
+        ...(dateValue ? [{ key: 'date', label: 'DÁTUM', value: dateValue }] : []),
+        ...(timeValue ? [{ key: 'time', label: 'ČAS', value: timeValue, textAlignment: 'PKTextAlignmentRight' }] : []),
       ],
-      // Venue below
       auxiliaryFields: [
-        ...(locationValue ? [{ key: 'location', label: 'MIESTO', value: locationValue, textAlignment: 'PKTextAlignmentLeft' }] : []),
+        ...(locationValue ? [{ key: 'location', label: 'MIESTO', value: locationValue }] : []),
       ],
       backFields: [
         { key: 'ticketId', label: 'ID LÍSTKA', value: attendee.id },
