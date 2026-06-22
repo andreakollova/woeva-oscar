@@ -99,7 +99,7 @@ export async function GET(req: NextRequest) {
         ...(event.price > 0 ? [{ key: 'price', label: 'ZAPLATENÁ SUMA', value: `€${Number(event.price).toFixed(2)}` }] : []),
       ],
     },
-    barcodes: [{ message: attendee.id, format: 'PKBarcodeFormatQR', messageEncoding: 'iso-8859-1' }],
+    barcodes: [{ message: `woeva:event:${event_id}:${userId}`, format: 'PKBarcodeFormatQR', messageEncoding: 'iso-8859-1' }],
     // Expire at end of event day (23:59 CET/CEST) — iOS moves it to "Expired" automatically
     ...(event.date ? { expirationDate: `${event.date}T23:59:00+02:00` } : {}),
   };
