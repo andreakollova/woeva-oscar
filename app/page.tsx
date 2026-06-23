@@ -43,6 +43,9 @@ export default function Home() {
   const [savingCaptions, setSavingCaptions] = useState(false);
   const [captionCounts, setCaptionCounts] = useState({ lifestyle: 0, animation: 0 });
   const [reelCaption, setReelCaption] = useState('');
+  const [showCaptions, setShowCaptions] = useState(false);
+  const [captionsList, setCaptionsList] = useState<{ id: string; text: string; type: string; created_at: string }[]>([]);
+  const [deletingCaption, setDeletingCaption] = useState<string | null>(null);
   const [planDragId, setPlanDragId] = useState<string | null>(null);
   const [planDragOverId, setPlanDragOverId] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -55,6 +58,19 @@ export default function Home() {
   async function loadCaptionCounts() {
     const res = await fetch('/api/upload-caption', { headers: { 'x-password': password } });
     if (res.ok) setCaptionCounts(await res.json());
+  }
+
+  async function loadCaptionsList() {
+    const res = await fetch('/api/upload-caption?detail=1', { headers: { 'x-password': password } });
+    if (res.ok) { const data = await res.json(); setCaptionsList(data.captions ?? []); }
+  }
+
+  async function deleteCaption(id: string) {
+    setDeletingCaption(id);
+    await fetch('/api/upload-caption', { method: 'DELETE', headers: { 'Content-Type': 'application/json', 'x-password': password }, body: JSON.stringify({ id }) });
+    setCaptionsList(prev => prev.filter(c => c.id !== id));
+    loadCaptionCounts();
+    setDeletingCaption(null);
   }
 
   useEffect(() => {
@@ -446,6 +462,44 @@ export default function Home() {
               onBlur={e => e.target.style.borderColor = '#F0F0F0'}
             />
             <div style={{ fontSize: '11px', color: '#bbb' }}>Kazdy popis oddel pomocou <strong>---</strong> na novom riadku</div>
+
+            {/* View saved captions toggle */}
+            {captionCount > 0 && (
+              <button onClick={() => { if (!showCaptions) loadCaptionsList(); setShowCaptions(v => !v); }} style={{
+                width: '100%', padding: '10px', borderRadius: '10px', border: '1.5px solid #F0F0F0',
+                background: showCaptions ? '#F7F7F5' : '#fff', color: '#555', fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+              }}>
+                {showCaptions ? '▲ Skryť popisy' : `▼ Zobraziť uložené popisy (${captionCount})`}
+              </button>
+            )}
+
+            {/* Captions list */}
+            {showCaptions && (
+              <div style={{ maxHeight: '300px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '4px' }}>
+                {captionsList.filter(c => c.type === (tab === 'animation' ? 'animation' : 'lifestyle')).map(c => (
+                  <div key={c.id} style={{
+                    background: '#FAFAFA', border: '1px solid #F0F0F0', borderRadius: '10px', padding: '10px 12px',
+                    display: 'flex', alignItems: 'flex-start', gap: '8px',
+                    opacity: deletingCaption === c.id ? 0.4 : 1,
+                  }}>
+                    <div style={{ flex: 1, fontSize: '12px', color: '#444', lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                      {c.text.length > 150 ? c.text.slice(0, 150) + '…' : c.text}
+                    </div>
+                    <button onClick={() => deleteCaption(c.id)} disabled={deletingCaption === c.id} style={{
+                      flexShrink: 0, width: '24px', height: '24px', border: 'none', background: 'none',
+                      cursor: 'pointer', color: '#ccc', fontSize: '13px', borderRadius: '6px',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}
+                      onMouseEnter={e => (e.currentTarget.style.color = '#ef4444')}
+                      onMouseLeave={e => (e.currentTarget.style.color = '#ccc')}
+                    >✕</button>
+                  </div>
+                ))}
+                {captionsList.filter(c => c.type === (tab === 'animation' ? 'animation' : 'lifestyle')).length === 0 && (
+                  <div style={{ fontSize: '12px', color: '#bbb', textAlign: 'center', padding: '16px' }}>Žiadne popisy</div>
+                )}
+              </div>
+            )}
           </div>
         )}
 

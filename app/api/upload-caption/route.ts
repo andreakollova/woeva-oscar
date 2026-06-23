@@ -32,10 +32,17 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  const detail = req.nextUrl.searchParams.get('detail');
+
   const { data } = await getDb()
     .from('oscar_captions')
-    .select('type, used')
-    .eq('used', false);
+    .select('id, text, type, used, created_at')
+    .eq('used', false)
+    .order('created_at', { ascending: false });
+
+  if (detail === '1') {
+    return NextResponse.json({ captions: data ?? [] });
+  }
 
   const counts = { lifestyle: 0, animation: 0 };
   for (const row of data || []) {
@@ -44,4 +51,17 @@ export async function GET(req: NextRequest) {
   }
 
   return NextResponse.json(counts);
+}
+
+export async function DELETE(req: NextRequest) {
+  const xPassword = req.headers.get('x-password');
+  if (xPassword !== process.env.ADMIN_PASSWORD) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const { id } = await req.json();
+  if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
+
+  await getDb().from('oscar_captions').delete().eq('id', id);
+  return NextResponse.json({ ok: true });
 }
