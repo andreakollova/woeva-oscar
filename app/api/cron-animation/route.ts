@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-const db = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_KEY!);
+function getDb() { return createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_KEY!); }
 
 export const maxDuration = 60;
 
@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const { data: item } = await db
+  const { data: item } = await getDb()
     .from('oscar_queue')
     .select('*')
     .eq('status', 'pending')
@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Get an unused animation caption
-  const { data: captionRow } = await db
+  const { data: captionRow } = await getDb()
     .from('oscar_captions')
     .select('*')
     .eq('type', 'animation')
@@ -49,11 +49,11 @@ export async function POST(req: NextRequest) {
   const caption = captionRow.text;
 
   try {
-    await db.from('oscar_captions').update({ used: true }).eq('id', captionRow.id);
+    await getDb().from('oscar_captions').update({ used: true }).eq('id', captionRow.id);
 
     const discordMessageId = await sendVideoToDiscord(item.id, item.photo_url, caption);
 
-    await db.from('oscar_queue').update({
+    await getDb().from('oscar_queue').update({
       status: 'sent',
       caption,
       discord_message_id: discordMessageId,
@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, caption });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    await db.from('oscar_queue').update({ status: 'failed' }).eq('id', item.id);
+    await getDb().from('oscar_queue').update({ status: 'failed' }).eq('id', item.id);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

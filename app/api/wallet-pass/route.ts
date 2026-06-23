@@ -133,7 +133,7 @@ export async function GET(req: NextRequest) {
   let stripBuf: Buffer | null = null;
   const coverUrl = event.cover_url ?? event.image_url ?? event.photo_url;
   try {
-    const compositeInputs: { input: Buffer; top: number; left: number; blend?: string }[] = [];
+    const compositeInputs: any[] = [];
 
     // 1. Event photo (full strip, darkened)
     if (coverUrl) {
@@ -172,7 +172,7 @@ export async function GET(req: NextRequest) {
     compositeInputs.push({ input: pillSvg, top: 20, left: STRIP_W - 220 } as any);
 
     // 5. Event title text overlay — bottom left
-    const titleText = (event.title ?? '').replace(/[<>&"']/g, c => ({ '<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&apos;' }[c as '<']!));
+    const titleText = (event.title ?? '').replace(/[<>&"']/g, (c: string) => ({ '<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&apos;' }[c as '<']!));
     const truncated = titleText.length > 32 ? titleText.slice(0, 31) + '…' : titleText;
     const titleSvg = Buffer.from(
       `<svg width="600" height="60" xmlns="http://www.w3.org/2000/svg">

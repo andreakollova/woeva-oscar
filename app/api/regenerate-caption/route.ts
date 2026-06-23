@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-const db = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_KEY!);
+function getDb() { return createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_KEY!); }
 
 export async function POST(req: NextRequest) {
   const xPassword = req.headers.get('x-password');
@@ -11,11 +11,11 @@ export async function POST(req: NextRequest) {
   }
 
   const { itemId } = await req.json();
-  const { data: item } = await db.from('oscar_queue').select('*').eq('id', itemId).single();
+  const { data: item } = await getDb().from('oscar_queue').select('*').eq('id', itemId).single();
   if (!item) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
   // Get next unused caption matching item type
-  const { data: captionRow } = await db
+  const { data: captionRow } = await getDb()
     .from('oscar_captions')
     .select('*')
     .eq('type', item.type || 'lifestyle')
@@ -28,10 +28,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'No more captions available' }, { status: 400 });
   }
 
-  await db.from('oscar_captions').update({ used: true }).eq('id', captionRow.id);
+  await getDb().from('oscar_captions').update({ used: true }).eq('id', captionRow.id);
 
   const caption = captionRow.text;
-  await db.from('oscar_queue').update({ caption }).eq('id', itemId);
+  await getDb().from('oscar_queue').update({ caption }).eq('id', itemId);
 
   // Edit Discord message if exists
   if (item.discord_message_id) {

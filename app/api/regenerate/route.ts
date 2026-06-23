@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { generateOscarImage } from '@/lib/generate';
 
-const db = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_KEY!);
+function getDb() { return createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_KEY!); }
 
 export const maxDuration = 300;
 
@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
 
   const { itemId } = await req.json();
 
-  const { data: item } = await db.from('oscar_queue').select('*').eq('id', itemId).single();
+  const { data: item } = await getDb().from('oscar_queue').select('*').eq('id', itemId).single();
   if (!item) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
   try {
@@ -21,19 +21,19 @@ export async function POST(req: NextRequest) {
     const imageBuffer = Buffer.from(imageBase64, 'base64');
     const filename = `oscar-${Date.now()}.png`;
 
-    const { error: uploadError } = await db.storage
+    const { error: uploadError } = await getDb().storage
       .from('oscar-generated')
       .upload(filename, imageBuffer, { contentType: 'image/png', upsert: false });
     if (uploadError) throw uploadError;
 
-    const { data: urlData } = db.storage.from('oscar-generated').getPublicUrl(filename);
+    const { data: urlData } = getDb().storage.from('oscar-generated').getPublicUrl(filename);
 
     // Edit the Discord message with the new image
     if (item.discord_message_id) {
       await editDiscordMessage(item.discord_message_id, item.id, imageBuffer, filename, caption, item.style);
     }
 
-    await db.from('oscar_queue').update({
+    await getDb().from('oscar_queue').update({
       generated_url: urlData.publicUrl,
       caption,
     }).eq('id', itemId);

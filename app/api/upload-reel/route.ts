@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-const db = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_KEY!);
+function getDb() { return createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_KEY!); }
 
 export const maxDuration = 120;
 
@@ -19,15 +19,15 @@ export async function POST(req: NextRequest) {
   const filename = `reel-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
   const buffer = Buffer.from(await file.arrayBuffer());
 
-  const { error: uploadError } = await db.storage
+  const { error: uploadError } = await getDb().storage
     .from('oscar-videos')
     .upload(filename, buffer, { contentType: file.type, upsert: false });
   if (uploadError) return NextResponse.json({ error: uploadError.message }, { status: 500 });
 
-  const { data: urlData } = db.storage.from('oscar-videos').getPublicUrl(filename);
+  const { data: urlData } = getDb().storage.from('oscar-videos').getPublicUrl(filename);
   const videoUrl = urlData.publicUrl;
 
-  const { data: maxRow } = await db
+  const { data: maxRow } = await getDb()
     .from('oscar_queue')
     .select('position')
     .eq('type', 'reel')
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
     .single();
   const position = (maxRow?.position ?? -1) + 1;
 
-  const { data: item, error: insertError } = await db
+  const { data: item, error: insertError } = await getDb()
     .from('oscar_queue')
     .insert({ photo_url: videoUrl, type: 'reel', style: 'light', status: 'sent', position, caption })
     .select()
@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const msgId = await sendToDiscord(item.id, caption);
-    await db.from('oscar_queue').update({ discord_message_id: msgId }).eq('id', item.id);
+    await getDb().from('oscar_queue').update({ discord_message_id: msgId }).eq('id', item.id);
   } catch (e) {
     console.error('Discord send failed:', e);
   }

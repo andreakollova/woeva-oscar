@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-const db = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_KEY!);
+function getDb() { return createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_KEY!); }
 
 const VIDEO_TYPES = ['video/mp4', 'video/quicktime', 'video/mov', 'video/avi', 'video/webm'];
 
@@ -24,15 +24,15 @@ export async function POST(req: NextRequest) {
   const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
 
   const buffer = Buffer.from(await file.arrayBuffer());
-  const { error: uploadError } = await db.storage
+  const { error: uploadError } = await getDb().storage
     .from(bucket)
     .upload(filename, buffer, { contentType: file.type, upsert: false });
 
   if (uploadError) return NextResponse.json({ error: uploadError.message }, { status: 500 });
 
-  const { data: urlData } = db.storage.from(bucket).getPublicUrl(filename);
+  const { data: urlData } = getDb().storage.from(bucket).getPublicUrl(filename);
 
-  const { data: maxRow } = await db
+  const { data: maxRow } = await getDb()
     .from('oscar_queue')
     .select('position')
     .eq('type', type)
@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
 
   const position = (maxRow?.position ?? -1) + 1;
 
-  const { error: insertError } = await db.from('oscar_queue').insert({
+  const { error: insertError } = await getDb().from('oscar_queue').insert({
     photo_url: urlData.publicUrl,
     style,
     type,
