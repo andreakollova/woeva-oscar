@@ -68,12 +68,12 @@ export async function GET(req: NextRequest) {
   // Format fields
   const dateValue = event.date ? formatDate(event.date) : '';
   const timeValue = event.time ? event.time.slice(0, 5) : '';
-  // Build location: use venue, add city only if not already in venue
-  const venue = event.venue ?? '';
+  // Build location: venue + city, strip country
+  const rawVenue = (event.venue ?? '').replace(/,\s*(Slovensko|Slovakia|Česko|Czechia|Czech Republic)\s*$/i, '');
   const city = event.city ?? '';
-  const locationValue = city && !venue.toLowerCase().includes(city.toLowerCase())
-    ? `${venue}, ${city}`.replace(/^, /, '')
-    : venue || city;
+  const locationValue = city && !rawVenue.toLowerCase().includes(city.toLowerCase())
+    ? `${rawVenue}, ${city}`.replace(/^, /, '')
+    : rawVenue || city;
 
   const passJson = {
     formatVersion: 1,
@@ -87,7 +87,8 @@ export async function GET(req: NextRequest) {
     backgroundColor: 'rgb(18, 18, 18)',
     labelColor: 'rgb(160, 160, 160)',
     eventTicket: {
-      primaryFields: [{ key: 'event', label: 'EVENT', value: event.title ?? '' }],
+      headerFields: [{ key: 'event', label: 'EVENT', value: event.title ?? '' }],
+      primaryFields: [],
       secondaryFields: [
         ...(dateValue ? [{ key: 'date', label: 'DÁTUM', value: dateValue }] : []),
         ...(timeValue ? [{ key: 'time', label: 'ČAS', value: timeValue, textAlignment: 'PKTextAlignmentRight' }] : []),
