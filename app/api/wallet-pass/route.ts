@@ -68,7 +68,12 @@ export async function GET(req: NextRequest) {
   // Format fields
   const dateValue = event.date ? formatDate(event.date) : '';
   const timeValue = event.time ? event.time.slice(0, 5) : '';
-  const locationValue = [event.venue, event.city].filter(Boolean).join(', ');
+  // Build location: use venue, add city only if not already in venue
+  const venue = event.venue ?? '';
+  const city = event.city ?? '';
+  const locationValue = city && !venue.toLowerCase().includes(city.toLowerCase())
+    ? `${venue}, ${city}`.replace(/^, /, '')
+    : venue || city;
 
   const passJson = {
     formatVersion: 1,
@@ -82,7 +87,7 @@ export async function GET(req: NextRequest) {
     backgroundColor: 'rgb(18, 18, 18)',
     labelColor: 'rgb(160, 160, 160)',
     eventTicket: {
-      primaryFields: [],
+      primaryFields: [{ key: 'event', label: 'EVENT', value: event.title ?? '' }],
       secondaryFields: [
         ...(dateValue ? [{ key: 'date', label: 'DÁTUM', value: dateValue }] : []),
         ...(timeValue ? [{ key: 'time', label: 'ČAS', value: timeValue, textAlignment: 'PKTextAlignmentRight' }] : []),
@@ -161,26 +166,7 @@ export async function GET(req: NextRequest) {
     }).png().toBuffer();
     compositeInputs.push({ input: limeBarBuf, top: STRIP_H - LIME_H, left: 0 });
 
-    // 4. "VALID TICKET" SVG pill — top right
-    const pillSvg = Buffer.from(
-      `<svg width="200" height="40" xmlns="http://www.w3.org/2000/svg">
-        <rect x="0" y="0" width="200" height="40" rx="20" fill="rgba(255,255,255,0.15)"/>
-        <text x="100" y="27" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
-              font-size="14" font-weight="700" fill="#B9FF00" text-anchor="middle" letter-spacing="1.5">VALID TICKET</text>
-      </svg>`
-    );
-    compositeInputs.push({ input: pillSvg, top: 20, left: STRIP_W - 220 } as any);
-
-    // 5. Event title text overlay — bottom left
-    const titleText = (event.title ?? '').replace(/[<>&"']/g, (c: string) => ({ '<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&apos;' }[c as '<']!));
-    const truncated = titleText.length > 32 ? titleText.slice(0, 31) + '…' : titleText;
-    const titleSvg = Buffer.from(
-      `<svg width="600" height="60" xmlns="http://www.w3.org/2000/svg">
-        <text x="0" y="48" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
-              font-size="44" font-weight="800" fill="white" letter-spacing="-1">${truncated}</text>
-      </svg>`
-    );
-    compositeInputs.push({ input: titleSvg, top: STRIP_H - LIME_H - 70, left: 28 } as any);
+    // SVG text overlays removed — Vercel serverless has no fonts for SVG rendering
 
     stripBuf = await sharp({
       create: { width: STRIP_W, height: STRIP_H, channels: 3, background: { r: 17, g: 17, b: 17 } },
